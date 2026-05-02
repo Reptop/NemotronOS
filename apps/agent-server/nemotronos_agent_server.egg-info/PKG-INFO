@@ -1,0 +1,10 @@
+Metadata-Version: 2.4
+Name: nemotronos-agent-server
+Version: 0.1.0
+Summary: Agent runtime for NemotronOS
+Requires-Python: >=3.11
+Requires-Dist: fastapi>=0.110.0
+Requires-Dist: httpx>=0.27.0
+Requires-Dist: pydantic>=2.7.0
+Requires-Dist: python-dotenv>=1.0.1
+Requires-Dist: uvicorn>=0.29.0
