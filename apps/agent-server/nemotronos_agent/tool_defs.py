@@ -54,12 +54,25 @@ def tool_definitions() -> list[dict[str, Any]]:
         {
             "name": "keyboard_type",
             "description": "Type text into the active UI element.",
-            "parameters": {"type": "object", "properties": {"text": {"type": "string"}}},
+            "parameters": {
+                "type": "object",
+                "properties": {"text": {"type": "string"}},
+                "required": ["text"],
+            },
         },
         {
             "name": "app_launch",
             "description": "Launch an application.",
-            "parameters": {"type": "object", "properties": {"app_name": {"type": "string"}}},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "app_name": {
+                        "type": "string",
+                        "enum": ["notepad", "calculator", "calc", "paint", "mspaint"],
+                    }
+                },
+                "required": ["app_name"],
+            },
         },
         {
             "name": "shell_run",
@@ -72,8 +85,15 @@ def tool_definitions() -> list[dict[str, Any]]:
         },
         {
             "name": "browser_open",
-            "description": "Open a browser to a URL.",
-            "parameters": {"type": "object", "properties": {"url": {"type": "string"}}},
+            "description": (
+                "Open the user's default web browser to an http(s) URL, domain, "
+                "or common site name such as canvas."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"url": {"type": "string"}},
+                "required": ["url"],
+            },
         },
         {
             "name": "browser_click_text",

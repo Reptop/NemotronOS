@@ -1,1 +1,6 @@
 .env
+.deps/
+.tmp/
+.venv/
+logs/
+node_modules/

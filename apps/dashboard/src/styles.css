@@ -95,6 +95,24 @@ pre {
   margin-bottom: 14px;
 }
 
+.task-form button + button {
+  margin-left: 10px;
+}
+
+.voice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 14px;
+}
+
+.voice-actions p {
+  flex-basis: 100%;
+  margin: 0;
+  color: #52607a;
+}
+
 .status-bar {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -265,7 +283,8 @@ pre {
 }
 
 .primary-button,
-.secondary-button {
+.secondary-button,
+.danger-button {
   border: 0;
   border-radius: 999px;
   padding: 12px 18px;
@@ -284,8 +303,15 @@ pre {
   color: #162033;
 }
 
+.danger-button {
+  background: #d92d20;
+  color: #fff;
+  font-weight: 700;
+}
+
 .primary-button:hover,
-.secondary-button:hover {
+.secondary-button:hover,
+.danger-button:hover {
   transform: translateY(-1px);
 }
 

@@ -6,9 +6,11 @@ Purpose: current operational snapshot for any teammate or AI agent joining mid-h
 
 ## Current System Status
 
-- The repo has a working macOS development slice for a Windows-first PC agent demo.
+- The repo has a working Windows mock development slice for a Windows-first PC agent demo.
 - The main demo is: organize Downloads by file type, show the plan first, require approval, then apply changes.
 - The stack is split into a FastAPI agent server, a FastAPI tool server, and a React dashboard.
+- On 2026-05-02, the stack was validated on Windows with `TOOL_MODE=mock_windows` and `MODEL_MODE=mock`.
+- On 2026-05-03, local NVIDIA NIM was validated from Windows at `http://127.0.0.1:8000/v1` with `nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1`.
 
 ## What Works Now
 
@@ -18,37 +20,51 @@ Purpose: current operational snapshot for any teammate or AI agent joining mid-h
 - The policy engine marks `fs_apply_changes` as medium risk and the dashboard exposes approval.
 - Approved plans can be applied and generate an undo log.
 - The dashboard can submit tasks, poll health/tasks/events, show the plan preview, and send approval.
+- The agent model layer works with `MODEL_MODE=openai_compatible` against the local 4B NIM endpoint for the Downloads demo. The client forces `fs_plan_changes` for the known Downloads organizer prompt and normalizes the root path to `DEFAULT_DOWNLOADS_PATH`.
+- The dashboard has a reset control wired through `POST /demo/reset-downloads` to restore the fake Downloads fixture for repeatable demos.
+- The dashboard has a browser microphone path wired through `POST /voice/tasks`. The agent server transcribes with OpenAI's audio transcription API when `OPENAI_API_KEY` is configured, then submits the transcript as a normal task.
+- The dashboard supports a browser-scoped voice hotkey: `Ctrl+Shift+Space` toggles recording while the dashboard tab is active.
+- The dashboard supports browser-scoped wake words while enabled: utterances beginning with "Jarvis" or "Computer" are stripped of the wake word and submitted through `POST /voice/text-tasks`. Chrome/Edge use browser speech recognition; Firefox falls back to short MediaRecorder chunks sent to `POST /voice/wake-detect` for Whisper-based detection.
+- `apps/voice-agent` is scaffolded as a separate local voice loop. `VOICE_AGENT_WAKE_MODE=whisper_poll` waits for speech, records until a short silence, then uses `/voice/wake-detect`; `--mode manual` submits typed commands for fast pipeline testing. It speaks acknowledgements through Windows SAPI when `VOICE_AGENT_TTS_MODE=windows_sapi`. `VOICE_AGENT_INPUT_DEVICE` can pin a microphone by sounddevice index or name. Current recommended utterance capture settings are `VOICE_AGENT_CHUNK_SECONDS=8`, `VOICE_AGENT_SILENCE_SECONDS=1.8`, and `VOICE_AGENT_MIN_RECORD_SECONDS=1.2`. If the agent hears only the wake word, it speaks `VOICE_AGENT_LISTENING_ACK` and treats the next utterance as the command.
+- Voice transcripts are stored on task memory. Explicit verbatim markers such as "word for word" preserve the post-marker text as a memory override. Voice dictation commands also store the text after generic type/write/enter/paste wording so a too-short model `keyboard_type` argument cannot truncate longer notes.
+- Browser navigation is implemented as a real `browser_open` tool. It opens the default Windows browser to an http(s) URL, domain, search query, or known shortcut such as `canvas`.
+- If the OpenAI transcription call fails, the dashboard can fall back to browser speech recognition through `POST /voice/text-tasks` when the browser exposes `SpeechRecognition`/`webkitSpeechRecognition`.
 
 ## What Is Stubbed Or Fake
 
 - The fake Windows filesystem under `sandbox/fake_windows_home` is the active environment, not a real Windows box.
+- Voice transcription currently uses OpenAI as temporary development scaffolding, not the final private/local STT architecture.
+- The local voice agent's current wake mode is Whisper polling with silence-based utterance capture, which is functional but not the final low-latency wake detector. The intended next swap is local openWakeWord/Porcupine for wake detection and NVIDIA Speech NIM/Riva for ASR/TTS.
 - The mock model does not behave like a general agent yet. It mainly supports the Downloads-organization path and otherwise falls back to `notify_user`.
 - `screen_capture` is mock output in `TOOL_MODE=mock_windows`.
 - `shell_run` is a safe stub in `TOOL_MODE=mock_windows`; it does not execute real shell commands there.
-- The real Windows desktop backend is not implemented yet. `WindowsDesktopBackend.capture_screen()` raises `NotImplementedError`.
+- The real Windows desktop backend has an initial allowlisted `app_launch`, `browser_open`, and `keyboard_type` implementation. Notepad launch creates a unique empty temp document so the demo does not type into a restored/preexisting note. The text follow-up is model-mediated, with voice memory overriding the typed text when the transcript contains clear dictation content. Windows text entry uses clipboard paste rather than per-character `SendInput`. `WindowsDesktopBackend.capture_screen()` still raises `NotImplementedError`.
 - The agent advertises more tool definitions than the tool server currently registers. Treat `apps/tool-server/nemotronos_tools/registry.py` as the runtime truth.
 
 ## Highest-Priority Next Tasks
 
-1. Validate the full startup flow on a real Windows machine once the team switches over.
-2. Decide which tools are actually in scope for the MVP and align tool definitions with registered runtime behavior.
-3. Expand beyond the single Downloads demo path only if the main Windows demo is already stable.
-4. Remove or clearly quarantine generated artifacts from active source review if they start causing confusion during the hackathon.
+1. Decide which tools are actually in scope for the MVP and align tool definitions with registered runtime behavior.
+2. Run the tool server from the signed-in interactive Windows terminal with `TOOL_MODE=windows` and verify the prompts `Open Notepad and type "Hello from NemotronOS."` and `Open my web browser and navigate to Canvas.`
+3. Expand beyond the single Downloads demo path only if the main Windows and Notepad demos are stable.
 
 ## Windows Handoff Notes
 
 - Current path assumptions are Windows-style at the agent/tool boundary and local sandbox paths underneath.
-- The real user path for the demo is modeled as `C:\Users\Raed\Downloads`.
+- The real user path for the demo is modeled by `DEFAULT_DOWNLOADS_PATH`, currently `C:\Users\Raed\Downloads`.
 - `TOOL_MODE=mock_windows` is the safe current dev path.
 - Switching to real Windows behavior will require replacing or extending the scaffolded desktop/tool backends, not just changing docs or prompts.
 - Check Python 3.11+ and Node/Vite startup on Windows before promising demo readiness.
+- In the Codex sandbox on Windows, the user-level `python` and `py` shims were not usable; the bundled Python runtime plus repo-local `.deps/python` worked after allowing pip network access.
+- For local NIM on the RTX 4090, the 8B NIM and 4B TensorRT buildable BF16 profile were killed during startup. The working path was the 4B NIM `vllm-bf16-tp1-pp1` profile with reduced context (`NIM_MAX_MODEL_LEN=4096`).
+- Real Windows desktop input should be tested from an interactive user-launched tool server. In the Codex hidden process context, Notepad can be launched but may not expose a focusable desktop window, so `SetForegroundWindow` can fail even when `SendInput` succeeds.
+- On 2026-05-02, voice transcription briefly failed because an inherited Windows `OPENAI_API_KEY` took precedence over the repo `.env` key. `get_settings()` now loads the repo `.env` with override semantics for local dev; the backend transcriber was verified against `C:\Users\Raed\Downloads\file.mp3`.
 
 ## Known Mismatches And Risks
 
-- `README.md` tells developers to copy `.env.example`, but `.env.example` is not present in the repo.
 - State is in memory, so restarts wipe tasks, events, approval state, and stored plans.
 - The repo includes committed `__pycache__`, `dist`, and `*.egg-info` artifacts. They should not be treated as the canonical implementation.
 - The broader tool list in `apps/agent-server/nemotronos_agent/tool_defs.py` can make the system look more complete than the runtime actually is.
+- Local NIM may return a tool call with non-demo-safe paths. The current OpenAI-compatible client intentionally normalizes the known Downloads demo arguments before tool execution.
 
 ## Update Protocol
 

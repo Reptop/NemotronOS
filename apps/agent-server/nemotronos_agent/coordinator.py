@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from .event_log import EventLog
@@ -69,6 +70,26 @@ class AgentCoordinator:
 
             if planned_call.name == "fs_plan_changes":
                 await self._queue_approval_for_plan(task_id, result)
+                return
+
+            if planned_call.name == "app_launch" and self._is_notepad_typing_goal(task.goal):
+                typed_result = await self._type_notepad_demo_text(task_id, task.goal)
+                self.task_store.update_task(
+                    task_id,
+                    state="completed",
+                    result={
+                        "app_launch": result,
+                        "keyboard_type": typed_result,
+                    },
+                )
+                self.event_log.add_event(
+                    "task_completed",
+                    task_id=task_id,
+                    result={
+                        "app_launch": result,
+                        "keyboard_type": typed_result,
+                    },
+                )
                 return
 
             self.task_store.update_task(task_id, state="completed", result=result)
@@ -188,3 +209,51 @@ class AgentCoordinator:
             "plan_id": task.plan_id,
             "create_undo_log": True,
         }
+
+    def _is_notepad_typing_goal(self, goal: str) -> bool:
+        lowered_goal = goal.lower()
+        return "notepad" in lowered_goal and "type" in lowered_goal
+
+    async def _type_notepad_demo_text(self, task_id: str, goal: str) -> dict[str, Any]:
+        task = self.task_store.get_task(task_id)
+        if not task or not task.tool_calls:
+            raise RuntimeError("Cannot plan desktop follow-up without the app launch result.")
+
+        planned_call = await self.model_client.plan_next_action(
+            goal,
+            self.tool_registry.definitions(),
+            previous_tool_name="app_launch",
+            previous_result=task.tool_calls[-1].result or {},
+        )
+        arguments = planned_call.arguments
+        if task.memory.get("voice_dictation_text"):
+            arguments = {
+                **arguments,
+                "text": task.memory["voice_dictation_text"],
+                "text_ref": "task.memory.voice_dictation_text",
+            }
+
+        self.event_log.add_event(
+            "model_requested_tool",
+            task_id=task_id,
+            tool_name=planned_call.name,
+            arguments=arguments,
+            rationale=planned_call.rationale,
+        )
+        if planned_call.name != "keyboard_type":
+            raise RuntimeError(f"Expected keyboard_type follow-up, got {planned_call.name}.")
+
+        policy = self.policy_engine.classify("keyboard_type", arguments)
+        self.event_log.add_event(
+            "policy_checked",
+            task_id=task_id,
+            tool_name="keyboard_type",
+            risk_level=policy.risk_level,
+            allowed=policy.allowed,
+            reason=policy.reason,
+        )
+        if not policy.allowed:
+            raise RuntimeError(policy.reason)
+
+        await asyncio.sleep(1.0)
+        return await self.worker.call_tool(task_id, "keyboard_type", arguments)

@@ -58,6 +58,7 @@ class TaskRecord(BaseModel):
     pending_approval: ApprovalRequest | None = None
     result: dict[str, Any] | None = None
     error: str | None = None
+    memory: dict[str, Any] = Field(default_factory=dict)
 
 
 class TaskStore:

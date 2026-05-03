@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlparse
 
 from pydantic import BaseModel
 
@@ -34,6 +35,55 @@ class PolicyEngine:
                 risk_level="low",
                 allowed=True,
                 reason=f"{tool_name} is read-only or user-informing.",
+            )
+
+        if tool_name == "app_launch":
+            app_name = str(arguments.get("app_name", "")).strip().lower()
+            if app_name not in {"notepad", "calculator", "calc", "paint", "mspaint"}:
+                return PolicyDecision(
+                    tool_name=tool_name,
+                    risk_level="medium",
+                    allowed=False,
+                    reason=f"App launch is restricted to known demo apps. Rejected: {app_name}",
+                )
+            return PolicyDecision(
+                tool_name=tool_name,
+                risk_level="low",
+                allowed=True,
+                reason="Launching an allowlisted local demo app is low risk.",
+            )
+
+        if tool_name == "keyboard_type":
+            text = str(arguments.get("text", ""))
+            if len(text) > 500:
+                return PolicyDecision(
+                    tool_name=tool_name,
+                    risk_level="medium",
+                    allowed=False,
+                    reason="Keyboard typing is limited to 500 characters in the demo path.",
+                )
+            return PolicyDecision(
+                tool_name=tool_name,
+                risk_level="medium",
+                allowed=True,
+                reason="Typing into the active app changes desktop state and is limited to demo text.",
+            )
+
+        if tool_name == "browser_open":
+            raw_url = str(arguments.get("url", "")).strip()
+            parsed = urlparse(raw_url if "://" in raw_url else f"https://{raw_url}")
+            if parsed.scheme not in {"http", "https"}:
+                return PolicyDecision(
+                    tool_name=tool_name,
+                    risk_level="medium",
+                    allowed=False,
+                    reason="Browser navigation is restricted to http and https targets.",
+                )
+            return PolicyDecision(
+                tool_name=tool_name,
+                risk_level="low",
+                allowed=True,
+                reason="Opening a browser URL is a low-risk navigation action.",
             )
 
         if tool_name == "fs_apply_changes":

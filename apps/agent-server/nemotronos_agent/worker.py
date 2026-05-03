@@ -25,7 +25,7 @@ class AgentWorker:
             "tool_started",
             task_id=task_id,
             tool_name=name,
-            arguments=arguments,
+            arguments=self._redact_tool_arguments(arguments),
         )
 
         try:
@@ -39,12 +39,12 @@ class AgentWorker:
             error_text = str(exc)
             self.task_store.append_tool_call(
                 task_id,
-                ToolCallRecord(
-                    name=name,
-                    arguments=arguments,
-                    status="failed",
-                    error=error_text,
-                ),
+            ToolCallRecord(
+                name=name,
+                arguments=self._redact_tool_arguments(arguments),
+                status="failed",
+                error=error_text,
+            ),
             )
             raise RuntimeError(f"Tool call failed for {name}: {error_text}") from exc
 
@@ -54,7 +54,7 @@ class AgentWorker:
             task_id,
             ToolCallRecord(
                 name=name,
-                arguments=arguments,
+                arguments=self._redact_tool_arguments(arguments),
                 status="completed",
                 result=result,
             ),
@@ -67,6 +67,15 @@ class AgentWorker:
         )
         return result
 
+    def _redact_tool_arguments(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if "text_ref" not in arguments:
+            return arguments
+
+        redacted = dict(arguments)
+        text = str(redacted.get("text", ""))
+        redacted["text"] = f"<{len(text)} chars from {redacted['text_ref']}>"
+        return redacted
+
     async def fetch_tool_server_health(self) -> dict[str, Any]:
         try:
             async with httpx.AsyncClient(timeout=self.settings.request_timeout_seconds) as client:
@@ -78,3 +87,14 @@ class AgentWorker:
                 "status": "error",
                 "detail": str(exc),
             }
+
+    async def reset_demo_downloads(self) -> dict[str, Any]:
+        try:
+            async with httpx.AsyncClient(timeout=self.settings.request_timeout_seconds) as client:
+                response = await client.post(
+                    f"{self.settings.tool_server_url.rstrip('/')}/demo/reset-downloads"
+                )
+                response.raise_for_status()
+            return response.json()["result"]
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"Demo reset failed: {exc}") from exc

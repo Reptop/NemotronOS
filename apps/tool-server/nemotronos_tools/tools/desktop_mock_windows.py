@@ -19,3 +19,29 @@ class MockWindowsDesktopBackend(DesktopBackend):
             ],
             "image_ref": "mock://screen/latest",
         }
+
+    def launch_app(self, app_name: str) -> dict[str, Any]:
+        return {
+            "mode": "mock_windows",
+            "app_name": app_name,
+            "launched": True,
+            "window_title": f"{app_name.title()} - Mock Window",
+            "launched_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def type_text(self, text: str) -> dict[str, Any]:
+        return {
+            "mode": "mock_windows",
+            "typed": True,
+            "characters": len(text),
+            "typed_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def open_browser(self, url: str) -> dict[str, Any]:
+        return {
+            "mode": "mock_windows",
+            "opened": True,
+            "url": url,
+            "browser": "default",
+            "opened_at": datetime.now(timezone.utc).isoformat(),
+        }

@@ -25,6 +25,17 @@ FILE_TYPE_FOLDERS: dict[str, str] = {
 }
 
 
+DEMO_DOWNLOAD_FILES: dict[str, str] = {
+    "invoice_april.pdf": "Mock PDF content for invoice_april.pdf\n",
+    "project_notes.txt": "Project notes placeholder text.\n",
+    "random.zip": "Mock archive placeholder data.\n",
+    "resume.pdf": "Mock PDF content for resume.pdf\n",
+    "screenshot_001.png": "mock image placeholder for screenshot_001.png\n",
+    "screenshot_002.png": "mock image placeholder for screenshot_002.png\n",
+    "wildfire_dataset.csv": "region,acres,status\nNorth,1200,active\nSouth,220,contained\n",
+}
+
+
 class FilesystemToolService:
     def __init__(self, path_mapper: FakeWindowsPathMapper, plan_store: PlanStore) -> None:
         self.path_mapper = path_mapper
@@ -159,6 +170,40 @@ class FilesystemToolService:
             "applied_changes": applied_changes,
             "undo_log_path": undo_log_path,
             "applied_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def reset_demo_downloads(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        root_path = str(arguments.get("root_path", "")).strip()
+        if not root_path:
+            raise ValueError("reset_demo_downloads requires root_path.")
+
+        local_root = self.path_mapper.to_local_path(root_path)
+        local_root.mkdir(parents=True, exist_ok=True)
+
+        removed_paths: list[str] = []
+        created_files: list[str] = []
+
+        for directory_name in sorted(set(FILE_TYPE_FOLDERS.values()) | {"Other"}):
+            directory = local_root / directory_name
+            if directory.exists():
+                shutil.rmtree(directory)
+                removed_paths.append(self.path_mapper.to_windows_path(directory))
+
+        undo_root = self.path_mapper.to_local_path(r"C:\.nemotronos")
+        if undo_root.exists():
+            shutil.rmtree(undo_root)
+            removed_paths.append(self.path_mapper.to_windows_path(undo_root))
+
+        for file_name, content in DEMO_DOWNLOAD_FILES.items():
+            file_path = local_root / file_name
+            file_path.write_text(content, encoding="utf-8")
+            created_files.append(self.path_mapper.to_windows_path(file_path))
+
+        return {
+            "root_path": root_path,
+            "created_files": created_files,
+            "removed_paths": removed_paths,
+            "reset_at": datetime.now(timezone.utc).isoformat(),
         }
 
     def _target_folder_for(self, file_path: Path) -> str:

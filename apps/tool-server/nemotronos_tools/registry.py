@@ -7,6 +7,7 @@ from .config import ToolServerSettings
 from .path_mapper import FakeWindowsPathMapper
 from .plan_store import PlanStore
 from .tools.desktop_base import DesktopBackend
+from .tools.desktop_actions import app_launch, browser_open, keyboard_type
 from .tools.desktop_mock_windows import MockWindowsDesktopBackend
 from .tools.desktop_windows import WindowsDesktopBackend
 from .tools.filesystem import FilesystemToolService
@@ -50,10 +51,23 @@ def build_tool_registry(settings: ToolServerSettings) -> ToolRegistry:
     registry = ToolRegistry()
     registry.register("fs_plan_changes", filesystem_tools.fs_plan_changes)
     registry.register("fs_apply_changes", filesystem_tools.fs_apply_changes)
+    registry.register("demo_reset_downloads", filesystem_tools.reset_demo_downloads)
     registry.register("notify_user", notify_user)
     registry.register(
         "screen_capture",
         lambda arguments: screen_capture(arguments, desktop_backend),
+    )
+    registry.register(
+        "app_launch",
+        lambda arguments: app_launch(arguments, desktop_backend),
+    )
+    registry.register(
+        "keyboard_type",
+        lambda arguments: keyboard_type(arguments, desktop_backend),
+    )
+    registry.register(
+        "browser_open",
+        lambda arguments: browser_open(arguments, desktop_backend),
     )
     registry.register("shell_run", shell_run)
     return registry

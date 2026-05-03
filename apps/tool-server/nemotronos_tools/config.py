@@ -14,6 +14,7 @@ class ToolServerSettings:
     app_env: str
     tool_mode: str
     fake_windows_root: Path
+    default_downloads_path: str
 
 
 def _resolve_fake_windows_root(raw_value: str) -> Path:
@@ -29,5 +30,9 @@ def get_settings() -> ToolServerSettings:
         tool_mode=os.getenv("TOOL_MODE", "mock_windows"),
         fake_windows_root=_resolve_fake_windows_root(
             os.getenv("FAKE_WINDOWS_ROOT", "../../sandbox/fake_windows_home")
+        ),
+        default_downloads_path=os.getenv(
+            "DEFAULT_DOWNLOADS_PATH",
+            r"C:\Users\Raed\Downloads",
         ),
     )

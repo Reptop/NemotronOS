@@ -47,10 +47,24 @@ def create_app() -> FastAPI:
         current_registry: ToolRegistry = app.state.registry
         try:
             result = current_registry.call(request.name, request.arguments)
-        except (NotImplementedError, ValueError) as exc:
+        except (NotImplementedError, OSError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         return {"ok": True, "name": request.name, "result": result}
+
+    @app.post("/demo/reset-downloads")
+    def reset_demo_downloads() -> dict[str, Any]:
+        current_settings: ToolServerSettings = app.state.settings
+        current_registry: ToolRegistry = app.state.registry
+        try:
+            result = current_registry.call(
+                "demo_reset_downloads",
+                {"root_path": current_settings.default_downloads_path},
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        return {"ok": True, "result": result}
 
     return app
 

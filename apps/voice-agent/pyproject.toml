@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nemotronos-voice-agent"
+version = "0.1.0"
+description = "Local voice loop for NemotronOS"
+requires-python = ">=3.11"
+dependencies = [
+  "httpx>=0.27.0",
+  "numpy>=1.26.0",
+  "sounddevice>=0.4.6",
+]
+
+[project.scripts]
+nemotronos-voice-agent = "nemotronos_voice_agent.main:main"
+
+[tool.setuptools.packages.find]
+include = ["nemotronos_voice_agent*"]
