@@ -45,3 +45,37 @@ class MockWindowsDesktopBackend(DesktopBackend):
             "browser": "default",
             "opened_at": datetime.now(timezone.utc).isoformat(),
         }
+
+    def focus_window(self, title_hint: str) -> dict[str, Any]:
+        return {
+            "mode": "mock_windows",
+            "focused": True,
+            "title_hint": title_hint,
+            "focused_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def click_at(self, x: int, y: int) -> dict[str, Any]:
+        return {
+            "mode": "mock_windows",
+            "clicked": True,
+            "x": x,
+            "y": y,
+            "clicked_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def click_foreground_relative(self, x_ratio: float, y_ratio: float) -> dict[str, Any]:
+        return {
+            "mode": "mock_windows",
+            "clicked": True,
+            "x_ratio": x_ratio,
+            "y_ratio": y_ratio,
+            "foreground_window": {
+                "left": 0,
+                "top": 0,
+                "right": 1920,
+                "bottom": 1080,
+            },
+            "x": int(1920 * x_ratio),
+            "y": int(1080 * y_ratio),
+            "clicked_at": datetime.now(timezone.utc).isoformat(),
+        }

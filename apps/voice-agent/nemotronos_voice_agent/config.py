@@ -13,6 +13,15 @@ class VoiceAgentSettings:
     chunk_seconds: float
     silence_seconds: float
     min_record_seconds: float
+    wake_chunk_seconds: float
+    wake_silence_seconds: float
+    wake_min_record_seconds: float
+    command_chunk_seconds: float
+    command_silence_seconds: float
+    command_min_record_seconds: float
+    openwakeword_model_paths: tuple[str, ...]
+    openwakeword_threshold: float
+    openwakeword_frame_ms: int
     speech_threshold: float
     listen_block_ms: int
     sample_rate: int
@@ -33,14 +42,42 @@ def get_settings() -> VoiceAgentSettings:
         for word in os.getenv("VOICE_AGENT_WAKE_WORDS", "jarvis,computer").split(",")
         if word.strip()
     )
+    openwakeword_model_paths = tuple(
+        path.strip()
+        for path in os.getenv("VOICE_AGENT_OPENWAKEWORD_MODELS", "hey_jarvis").split(";")
+        if path.strip()
+    )
+
+    chunk_seconds = float(os.getenv("VOICE_AGENT_CHUNK_SECONDS", "4"))
+    silence_seconds = float(os.getenv("VOICE_AGENT_SILENCE_SECONDS", "1.0"))
+    min_record_seconds = float(os.getenv("VOICE_AGENT_MIN_RECORD_SECONDS", "0.8"))
 
     return VoiceAgentSettings(
         agent_server_url=os.getenv("AGENT_SERVER_URL", "http://127.0.0.1:5051"),
         wake_mode=os.getenv("VOICE_AGENT_WAKE_MODE", "whisper_poll"),
         wake_words=wake_words or ("jarvis", "computer"),
-        chunk_seconds=float(os.getenv("VOICE_AGENT_CHUNK_SECONDS", "4")),
-        silence_seconds=float(os.getenv("VOICE_AGENT_SILENCE_SECONDS", "1.0")),
-        min_record_seconds=float(os.getenv("VOICE_AGENT_MIN_RECORD_SECONDS", "0.8")),
+        chunk_seconds=chunk_seconds,
+        silence_seconds=silence_seconds,
+        min_record_seconds=min_record_seconds,
+        wake_chunk_seconds=float(os.getenv("VOICE_AGENT_WAKE_CHUNK_SECONDS", str(chunk_seconds))),
+        wake_silence_seconds=float(
+            os.getenv("VOICE_AGENT_WAKE_SILENCE_SECONDS", str(silence_seconds))
+        ),
+        wake_min_record_seconds=float(
+            os.getenv("VOICE_AGENT_WAKE_MIN_RECORD_SECONDS", str(min_record_seconds))
+        ),
+        command_chunk_seconds=float(
+            os.getenv("VOICE_AGENT_COMMAND_CHUNK_SECONDS", str(chunk_seconds))
+        ),
+        command_silence_seconds=float(
+            os.getenv("VOICE_AGENT_COMMAND_SILENCE_SECONDS", str(silence_seconds))
+        ),
+        command_min_record_seconds=float(
+            os.getenv("VOICE_AGENT_COMMAND_MIN_RECORD_SECONDS", str(min_record_seconds))
+        ),
+        openwakeword_model_paths=openwakeword_model_paths,
+        openwakeword_threshold=float(os.getenv("VOICE_AGENT_OPENWAKEWORD_THRESHOLD", "0.5")),
+        openwakeword_frame_ms=int(os.getenv("VOICE_AGENT_OPENWAKEWORD_FRAME_MS", "80")),
         speech_threshold=float(os.getenv("VOICE_AGENT_SPEECH_THRESHOLD", "350")),
         listen_block_ms=int(os.getenv("VOICE_AGENT_LISTEN_BLOCK_MS", "100")),
         sample_rate=int(os.getenv("VOICE_AGENT_SAMPLE_RATE", "16000")),

@@ -7,7 +7,14 @@ from .config import ToolServerSettings
 from .path_mapper import FakeWindowsPathMapper
 from .plan_store import PlanStore
 from .tools.desktop_base import DesktopBackend
-from .tools.desktop_actions import app_launch, browser_open, keyboard_type
+from .tools.desktop_actions import (
+    app_launch,
+    browser_open,
+    keyboard_type,
+    mouse_click,
+    youtube_click_video,
+    youtube_open,
+)
 from .tools.desktop_mock_windows import MockWindowsDesktopBackend
 from .tools.desktop_windows import WindowsDesktopBackend
 from .tools.filesystem import FilesystemToolService
@@ -66,8 +73,20 @@ def build_tool_registry(settings: ToolServerSettings) -> ToolRegistry:
         lambda arguments: keyboard_type(arguments, desktop_backend),
     )
     registry.register(
+        "mouse_click",
+        lambda arguments: mouse_click(arguments, desktop_backend),
+    )
+    registry.register(
         "browser_open",
         lambda arguments: browser_open(arguments, desktop_backend),
+    )
+    registry.register(
+        "youtube_open",
+        lambda arguments: youtube_open(arguments, desktop_backend),
+    )
+    registry.register(
+        "youtube_click_video",
+        lambda arguments: youtube_click_video(arguments, desktop_backend),
     )
     registry.register("shell_run", shell_run)
     return registry

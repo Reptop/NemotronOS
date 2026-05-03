@@ -56,6 +56,14 @@ class MockModelClient(ModelClient):
                 rationale="Create a dry-run organization plan for the Downloads folder first.",
             )
 
+        youtube_arguments = _extract_youtube_arguments(goal)
+        if youtube_arguments:
+            return PlannedToolCall(
+                name="youtube_open",
+                arguments=youtube_arguments,
+                rationale="Open or search YouTube for the requested video.",
+            )
+
         browser_target = _extract_browser_target(goal)
         if browser_target:
             return PlannedToolCall(
@@ -101,6 +109,14 @@ class OpenAICompatibleModelClient(ModelClient):
         self, goal: str, tool_definitions: list[dict[str, Any]]
     ) -> PlannedToolCall:
         force_downloads_plan = self._should_force_downloads_plan(goal)
+        youtube_arguments = _extract_youtube_arguments(goal)
+        if youtube_arguments:
+            return PlannedToolCall(
+                name="youtube_open",
+                arguments=youtube_arguments,
+                rationale="Open or search YouTube for the requested video.",
+            )
+
         browser_target = _extract_browser_target(goal)
         if browser_target:
             return PlannedToolCall(
@@ -336,6 +352,44 @@ def _extract_browser_target(goal: str) -> str | None:
             return alias
 
     return None
+
+
+def _extract_youtube_arguments(goal: str) -> dict[str, Any] | None:
+    lowered_goal = goal.lower()
+    if "youtube" not in lowered_goal and "youtu.be" not in lowered_goal:
+        return None
+
+    url_match = re.search(r"https?://(?:www\.)?(?:youtube\.com|youtu\.be)\S+", goal, flags=re.IGNORECASE)
+    if url_match:
+        return {"action": "video", "video_url": url_match.group(0).rstrip(".,;")}
+
+    if re.search(r"\b(random|recommend|recommended|surprise me)\b", lowered_goal):
+        return {"action": "random"}
+
+    query_patterns = (
+        r"\b(?:search\s+(?:youtube\s+)?for)\s+(.+)$",
+        r"\b(?:play|watch|open|find)\s+(?:a\s+video\s+(?:called|named)\s+|the\s+video\s+|video\s+)?(.+?)\s+(?:on\s+youtube)\b",
+        r"\bon\s+youtube\s+(?:search\s+for|play|watch|find)\s+(.+)$",
+    )
+    for pattern in query_patterns:
+        match = re.search(pattern, goal, flags=re.IGNORECASE)
+        if not match:
+            continue
+        query = _clean_youtube_query(match.group(1))
+        if query:
+            return {"action": "search", "query": query}
+
+    if re.search(r"\b(open|go to|navigate to)\b", lowered_goal):
+        return {"action": "home"}
+
+    return {"action": "home"}
+
+
+def _clean_youtube_query(query: str) -> str:
+    cleaned = query.strip(" \t\n\r.,;:\"'")
+    cleaned = re.sub(r"\s+(?:on\s+youtube|youtube)$", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"^(?:youtube\s+)?", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip(" \t\n\r.,;:\"'")
 
 
 def _clean_browser_target(target: str) -> str:

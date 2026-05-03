@@ -96,29 +96,37 @@ nemotronos-voice-agent
 
 Useful modes:
 
-- `VOICE_AGENT_WAKE_MODE=whisper_poll`: waits for speech, records until a short silence, and asks the agent server to detect `Jarvis` or `Computer` through `POST /voice/wake-detect`.
+- `VOICE_AGENT_WAKE_MODE=whisper_poll`: recommended current demo mode. It waits for speech, records until a short silence, and asks the agent server to detect `Jarvis` or `Computer` through `POST /voice/wake-detect`.
+- `VOICE_AGENT_WAKE_MODE=openwakeword`: optional local wake mode. It listens locally with openWakeWord, then only sends the post-wake command audio for transcription. The current installed local model is `hey_jarvis`, so use Whisper-poll mode if you want `Computer`.
 - `nemotronos-voice-agent --mode manual`: no microphone; type commands into the console for quick testing.
 - `VOICE_AGENT_INPUT_DEVICE`: optional sounddevice index or name when Windows picks the wrong microphone.
-- `VOICE_AGENT_SILENCE_SECONDS`, `VOICE_AGENT_SPEECH_THRESHOLD`, and `VOICE_AGENT_CHUNK_SECONDS`: tune when an utterance starts, stops, and times out.
+- `VOICE_AGENT_OPENWAKEWORD_MODELS`: semicolon-separated openWakeWord model names or model paths. The default is `hey_jarvis`.
+- `VOICE_AGENT_OPENWAKEWORD_THRESHOLD` and `VOICE_AGENT_OPENWAKEWORD_FRAME_MS`: tune local wake sensitivity and streaming frame size.
+- `VOICE_AGENT_WAKE_SILENCE_SECONDS`, `VOICE_AGENT_WAKE_CHUNK_SECONDS`, `VOICE_AGENT_COMMAND_SILENCE_SECONDS`, and `VOICE_AGENT_COMMAND_CHUNK_SECONDS`: tune the faster wake capture separately from the longer command capture.
+- `VOICE_AGENT_SPEECH_THRESHOLD` and `VOICE_AGENT_LISTEN_BLOCK_MS`: tune speech detection sensitivity and how quickly silence is noticed.
 - If the wake word is heard without a command, the voice agent says `VOICE_AGENT_LISTENING_ACK` and treats the next utterance as the command.
 
 Example:
 
 `Computer, open notepad and type in hello from the local voice agent`
 
-This is still a scaffold. The intended low-latency path is to replace Whisper-based wake detection with a local wake detector such as openWakeWord or Porcupine, then use local NVIDIA Speech NIM/Riva ASR and TTS when those services are available.
+This is still a scaffold. The current recommended demo path is the refined Whisper-poll loop because it supports both `Jarvis` and `Computer`. The next privacy step is local NVIDIA Speech NIM/Riva ASR and TTS when those services are available, plus either a custom openWakeWord model or another local detector for "Computer."
 
 ### Real Windows desktop tool mode
 
-For the first real desktop-control slice, set `TOOL_MODE=windows` and run the tool server from an interactive Windows terminal. The tool server currently allowlists `notepad`, `calculator`/`calc`, and `paint`/`mspaint` for `app_launch`, supports `keyboard_type` through clipboard paste, and supports `browser_open` through the default Windows browser.
+For the first real desktop-control slice, set `TOOL_MODE=windows` and run the tool server from an interactive Windows terminal. The tool server currently allowlists `notepad`, `calculator`/`calc`, and `paint`/`mspaint` for `app_launch`, supports `keyboard_type` through clipboard paste, supports `browser_open` through the default Windows browser, and has screenshot-first mouse clicking for YouTube video selection with a ratio-click fallback.
 
 First manual test prompt:
 
 `Open Notepad and type "Hello from NemotronOS."`
 
-Browser test prompt:
+Browser test prompts:
 
 `Open my web browser and navigate to Canvas.`
+
+`Open YouTube and play a random video.`
+
+`Play lofi hip hop on YouTube.`
 
 If the tool server is launched from a hidden or non-interactive service context, Windows may create a process without a focusable desktop window. Run it from the signed-in desktop session for real UI interaction tests.
 
@@ -141,7 +149,7 @@ If the tool server is launched from a hidden or non-interactive service context,
 - `GET /health`
 - `POST /demo/reset-downloads`
 
-Currently registered tool-server tools include `app_launch`, `keyboard_type`, `browser_open`, `fs_plan_changes`, `fs_apply_changes`, `screen_capture`, `shell_run`, and `notify_user`.
+Currently registered tool-server tools include `app_launch`, `keyboard_type`, `mouse_click`, `browser_open`, `youtube_open`, `youtube_click_video`, `fs_plan_changes`, `fs_apply_changes`, `screen_capture`, `shell_run`, and `notify_user`.
 
 ## Notes
 

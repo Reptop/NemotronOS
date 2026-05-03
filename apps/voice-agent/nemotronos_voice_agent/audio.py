@@ -88,6 +88,19 @@ def record_wav_until_silence(
     return pcm_to_wav_bytes(samples, sample_rate, channels)
 
 
+def record_command_wav(settings) -> bytes:
+    return record_wav_until_silence(
+        settings.command_chunk_seconds,
+        settings.command_silence_seconds,
+        settings.command_min_record_seconds,
+        settings.speech_threshold,
+        settings.listen_block_ms,
+        settings.sample_rate,
+        settings.channels,
+        settings.input_device,
+    )
+
+
 def _normalize_device(input_device: str | None) -> int | str | None:
     if input_device is None:
         return None

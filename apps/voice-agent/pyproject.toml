@@ -13,6 +13,12 @@ dependencies = [
   "sounddevice>=0.4.6",
 ]
 
+[project.optional-dependencies]
+openwakeword = [
+  "onnxruntime>=1.17.0",
+  "openwakeword>=0.6.0",
+]
+
 [project.scripts]
 nemotronos-voice-agent = "nemotronos_voice_agent.main:main"
 

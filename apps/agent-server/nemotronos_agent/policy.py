@@ -69,21 +69,51 @@ class PolicyEngine:
                 reason="Typing into the active app changes desktop state and is limited to demo text.",
             )
 
-        if tool_name == "browser_open":
+        if tool_name in {"mouse_click", "youtube_click_video"}:
+            return PolicyDecision(
+                tool_name=tool_name,
+                risk_level="medium",
+                allowed=True,
+                reason="Mouse clicks change desktop/browser state and are limited to demo interactions.",
+            )
+
+        if tool_name in {"browser_open", "youtube_open"}:
             raw_url = str(arguments.get("url", "")).strip()
-            parsed = urlparse(raw_url if "://" in raw_url else f"https://{raw_url}")
-            if parsed.scheme not in {"http", "https"}:
-                return PolicyDecision(
-                    tool_name=tool_name,
-                    risk_level="medium",
-                    allowed=False,
-                    reason="Browser navigation is restricted to http and https targets.",
-                )
+            if tool_name == "youtube_open":
+                raw_url = str(arguments.get("video_url", "") or raw_url).strip()
+            if raw_url:
+                parsed = urlparse(raw_url if "://" in raw_url else f"https://{raw_url}")
+                if parsed.scheme not in {"http", "https"}:
+                    return PolicyDecision(
+                        tool_name=tool_name,
+                        risk_level="medium",
+                        allowed=False,
+                        reason="Browser navigation is restricted to http and https targets.",
+                    )
+            if tool_name == "youtube_open" and raw_url:
+                host = parsed.netloc.lower()
+                if host not in {
+                    "youtube.com",
+                    "www.youtube.com",
+                    "m.youtube.com",
+                    "music.youtube.com",
+                    "youtu.be",
+                }:
+                    return PolicyDecision(
+                        tool_name=tool_name,
+                        risk_level="medium",
+                        allowed=False,
+                        reason="YouTube navigation is restricted to YouTube URLs.",
+                    )
+            if tool_name == "browser_open":
+                reason = "Opening a browser URL is a low-risk navigation action."
+            else:
+                reason = "Opening YouTube search/video URLs is a low-risk navigation action."
             return PolicyDecision(
                 tool_name=tool_name,
                 risk_level="low",
                 allowed=True,
-                reason="Opening a browser URL is a low-risk navigation action.",
+                reason=reason,
             )
 
         if tool_name == "fs_apply_changes":

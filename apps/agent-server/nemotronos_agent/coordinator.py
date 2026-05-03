@@ -92,6 +92,31 @@ class AgentCoordinator:
                 )
                 return
 
+            if planned_call.name == "youtube_open" and self._should_click_youtube_video(
+                planned_call.arguments
+            ):
+                clicked_result = await self._click_youtube_video(
+                    task_id,
+                    planned_call.arguments,
+                )
+                self.task_store.update_task(
+                    task_id,
+                    state="completed",
+                    result={
+                        "youtube_open": result,
+                        "youtube_click_video": clicked_result,
+                    },
+                )
+                self.event_log.add_event(
+                    "task_completed",
+                    task_id=task_id,
+                    result={
+                        "youtube_open": result,
+                        "youtube_click_video": clicked_result,
+                    },
+                )
+                return
+
             self.task_store.update_task(task_id, state="completed", result=result)
             self.event_log.add_event("task_completed", task_id=task_id, result=result)
         except Exception as exc:  # noqa: BLE001
@@ -213,6 +238,43 @@ class AgentCoordinator:
     def _is_notepad_typing_goal(self, goal: str) -> bool:
         lowered_goal = goal.lower()
         return "notepad" in lowered_goal and "type" in lowered_goal
+
+    def _should_click_youtube_video(self, arguments: dict[str, Any]) -> bool:
+        action = str(arguments.get("action", "")).strip().lower()
+        return action in {"search", "specific", "video", "play", "watch", "random"}
+
+    async def _click_youtube_video(
+        self,
+        task_id: str,
+        youtube_arguments: dict[str, Any],
+    ) -> dict[str, Any]:
+        action = str(youtube_arguments.get("action", "")).strip().lower()
+        selection = "random_visible" if action == "random" else "first_result"
+        arguments = {
+            "selection": selection,
+            "wait_seconds": 5.0,
+        }
+
+        self.event_log.add_event(
+            "model_requested_tool",
+            task_id=task_id,
+            tool_name="youtube_click_video",
+            arguments=arguments,
+            rationale="Click a visible YouTube video after opening the relevant page.",
+        )
+        policy = self.policy_engine.classify("youtube_click_video", arguments)
+        self.event_log.add_event(
+            "policy_checked",
+            task_id=task_id,
+            tool_name="youtube_click_video",
+            risk_level=policy.risk_level,
+            allowed=policy.allowed,
+            reason=policy.reason,
+        )
+        if not policy.allowed:
+            raise RuntimeError(policy.reason)
+
+        return await self.worker.call_tool(task_id, "youtube_click_video", arguments)
 
     async def _type_notepad_demo_text(self, task_id: str, goal: str) -> dict[str, Any]:
         task = self.task_store.get_task(task_id)

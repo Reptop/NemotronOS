@@ -38,6 +38,10 @@ CF_UNICODETEXT = 13
 GMEM_MOVEABLE = 0x0002
 VK_CONTROL = 0x11
 VK_V = 0x56
+MOUSEEVENTF_LEFTDOWN = 0x0002
+MOUSEEVENTF_LEFTUP = 0x0004
+SM_XVIRTUALSCREEN = 76
+SM_YVIRTUALSCREEN = 77
 
 if IS_WINDOWS_RUNTIME:
     USER32.OpenClipboard.argtypes = [wintypes.HWND]
@@ -101,6 +105,22 @@ class Input(ctypes.Structure):
 
 
 if IS_WINDOWS_RUNTIME:
+    USER32.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
+    USER32.SetCursorPos.restype = wintypes.BOOL
+    USER32.GetForegroundWindow.argtypes = []
+    USER32.GetForegroundWindow.restype = wintypes.HWND
+    USER32.GetSystemMetrics.argtypes = [ctypes.c_int]
+    USER32.GetSystemMetrics.restype = ctypes.c_int
+    USER32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    USER32.GetWindowRect.restype = wintypes.BOOL
+    USER32.mouse_event.argtypes = [
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ULONG_PTR,
+    ]
+    USER32.mouse_event.restype = None
     USER32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(Input), ctypes.c_int]
     USER32.SendInput.restype = wintypes.UINT
 
@@ -129,6 +149,10 @@ class WindowsDesktopBackend(DesktopBackend):
 
         width, height = screenshot.size
         captured_at = datetime.now(timezone.utc).isoformat()
+        try:
+            foreground_window = self._foreground_window_rect()
+        except OSError:
+            foreground_window = None
         return {
             "mode": "windows",
             "captured": True,
@@ -138,6 +162,8 @@ class WindowsDesktopBackend(DesktopBackend):
             "mime_type": "image/png",
             "width": width,
             "height": height,
+            "virtual_screen_origin": self._virtual_screen_origin(),
+            **({"foreground_window": foreground_window} if foreground_window else {}),
         }
 
     def launch_app(self, app_name: str) -> dict[str, Any]:
@@ -203,12 +229,58 @@ class WindowsDesktopBackend(DesktopBackend):
     def open_browser(self, url: str) -> dict[str, Any]:
         self._ensure_windows_runtime()
         opened = webbrowser.open(url, new=2, autoraise=True)
+        if "youtube.com" in url.lower() or "youtu.be" in url.lower():
+            self._last_window_title_hint = "youtube"
         return {
             "mode": "windows",
             "opened": opened,
             "url": url,
             "browser": "default",
             "opened_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def focus_window(self, title_hint: str) -> dict[str, Any]:
+        self._ensure_windows_runtime()
+        cleaned_hint = title_hint.strip()
+        if not cleaned_hint:
+            raise ValueError("focus_window requires title_hint.")
+
+        focused = self._focus_window_by_title_with_retry(cleaned_hint)
+        return {
+            "mode": "windows",
+            "focused": focused,
+            "title_hint": cleaned_hint,
+            "focused_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def click_at(self, x: int, y: int) -> dict[str, Any]:
+        self._ensure_windows_runtime()
+        if not USER32.SetCursorPos(int(x), int(y)):
+            raise OSError(ctypes.get_last_error(), "SetCursorPos failed.")
+        self._send_mouse_click()
+        return {
+            "mode": "windows",
+            "clicked": True,
+            "x": int(x),
+            "y": int(y),
+            "clicked_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def click_foreground_relative(self, x_ratio: float, y_ratio: float) -> dict[str, Any]:
+        self._ensure_windows_runtime()
+        window_rect = self._foreground_window_rect()
+        left = window_rect["left"]
+        top = window_rect["top"]
+        width = max(1, window_rect["right"] - left)
+        height = max(1, window_rect["bottom"] - top)
+        x = left + round(width * x_ratio)
+        y = top + round(height * y_ratio)
+        result = self.click_at(x, y)
+        return {
+            **result,
+            "x_ratio": x_ratio,
+            "y_ratio": y_ratio,
+            "foreground_window": window_rect,
         }
 
     def _title_hint_for(self, app_name: str) -> str:
@@ -248,6 +320,28 @@ class WindowsDesktopBackend(DesktopBackend):
             KERNEL32.WaitForInputIdle(process._handle, 3000)  # noqa: SLF001
         except Exception:
             time.sleep(1.0)
+
+    def _foreground_window_rect(self) -> dict[str, int]:
+        hwnd = USER32.GetForegroundWindow()
+        if not hwnd:
+            raise OSError(ctypes.get_last_error(), "GetForegroundWindow failed.")
+
+        rect = wintypes.RECT()
+        if not USER32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            raise OSError(ctypes.get_last_error(), "GetWindowRect failed.")
+
+        return {
+            "left": int(rect.left),
+            "top": int(rect.top),
+            "right": int(rect.right),
+            "bottom": int(rect.bottom),
+        }
+
+    def _virtual_screen_origin(self) -> dict[str, int]:
+        return {
+            "x": int(USER32.GetSystemMetrics(SM_XVIRTUALSCREEN)),
+            "y": int(USER32.GetSystemMetrics(SM_YVIRTUALSCREEN)),
+        }
 
     def _focus_process_window(self, process_id: int) -> bool:
         windows: list[int] = []
@@ -343,6 +437,26 @@ class WindowsDesktopBackend(DesktopBackend):
         if sent != len(inputs):
             error_code = ctypes.get_last_error()
             raise OSError(error_code, "SendInput failed while sending hotkey.")
+
+    def _send_mouse_click(self) -> None:
+        USER32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+        time.sleep(0.08)
+        USER32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+
+    def _mouse_click_input(self, flags: int) -> Input:
+        return Input(
+            type=0,
+            union=InputUnion(
+                mi=MouseInput(
+                    dx=0,
+                    dy=0,
+                    mouseData=0,
+                    dwFlags=flags,
+                    time=0,
+                    dwExtraInfo=0,
+                )
+            ),
+        )
 
     def _virtual_key_input(self, virtual_key: int, key_up: bool) -> Input:
         return Input(

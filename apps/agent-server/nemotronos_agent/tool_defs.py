@@ -49,7 +49,15 @@ def tool_definitions() -> list[dict[str, Any]]:
         {
             "name": "mouse_click",
             "description": "Click on a UI target.",
-            "parameters": {"type": "object", "properties": {"target": {"type": "string"}}},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "x": {"type": "integer"},
+                    "y": {"type": "integer"},
+                    "x_ratio": {"type": "number"},
+                    "y_ratio": {"type": "number"},
+                },
+            },
         },
         {
             "name": "keyboard_type",
@@ -93,6 +101,46 @@ def tool_definitions() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {"url": {"type": "string"}},
                 "required": ["url"],
+            },
+        },
+        {
+            "name": "youtube_open",
+            "description": (
+                "Open YouTube home, search YouTube for a requested video/title, "
+                "open an exact YouTube video URL or video id, or open a randomized "
+                "YouTube topic search."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["home", "search", "video", "play", "watch", "random"],
+                    },
+                    "query": {"type": "string"},
+                    "video_url": {"type": "string"},
+                    "video_id": {"type": "string"},
+                },
+                "required": ["action"],
+            },
+        },
+        {
+            "name": "youtube_click_video",
+            "description": (
+                "Click a visible YouTube video in the foreground browser window using "
+                "a screen-coordinate heuristic. Use first_result after YouTube search "
+                "pages and random_visible after the YouTube home/recommendations page."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "selection": {
+                        "type": "string",
+                        "enum": ["first_result", "random_visible"],
+                    },
+                    "wait_seconds": {"type": "number"},
+                },
+                "required": ["selection"],
             },
         },
         {

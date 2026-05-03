@@ -20,3 +20,15 @@ class DesktopBackend(ABC):
     @abstractmethod
     def open_browser(self, url: str) -> dict[str, Any]:
         """Open the default browser to an http(s) URL."""
+
+    @abstractmethod
+    def focus_window(self, title_hint: str) -> dict[str, Any]:
+        """Focus a visible desktop window whose title contains the hint."""
+
+    @abstractmethod
+    def click_at(self, x: int, y: int) -> dict[str, Any]:
+        """Click an absolute desktop coordinate."""
+
+    @abstractmethod
+    def click_foreground_relative(self, x_ratio: float, y_ratio: float) -> dict[str, Any]:
+        """Click a coordinate relative to the foreground window bounds."""

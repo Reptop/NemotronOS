@@ -4,7 +4,11 @@ import asyncio
 import unittest
 
 from nemotronos_agent.config import AgentServerSettings
-from nemotronos_agent.model_client import OpenAICompatibleModelClient, _extract_browser_target
+from nemotronos_agent.model_client import (
+    OpenAICompatibleModelClient,
+    _extract_browser_target,
+    _extract_youtube_arguments,
+)
 
 
 class OpenAICompatibleModelClientTests(unittest.TestCase):
@@ -94,6 +98,37 @@ class OpenAICompatibleModelClientTests(unittest.TestCase):
             "github.com",
         )
         self.assertIsNone(_extract_browser_target("Open Notepad and type hello."))
+
+    def test_youtube_random_video_routes_to_youtube_tool(self) -> None:
+        planned_call = asyncio.run(
+            self.client.plan_first_action(
+                "Open YouTube and play a random recommended video.",
+                [],
+            )
+        )
+
+        self.assertEqual(planned_call.name, "youtube_open")
+        self.assertEqual(planned_call.arguments, {"action": "random"})
+
+    def test_youtube_specific_video_search_routes_to_youtube_tool(self) -> None:
+        planned_call = asyncio.run(
+            self.client.plan_first_action(
+                "Play lofi hip hop on YouTube.",
+                [],
+            )
+        )
+
+        self.assertEqual(planned_call.name, "youtube_open")
+        self.assertEqual(
+            planned_call.arguments,
+            {"action": "search", "query": "lofi hip hop"},
+        )
+
+    def test_extracts_youtube_url_as_exact_video(self) -> None:
+        self.assertEqual(
+            _extract_youtube_arguments("Watch https://www.youtube.com/watch?v=abc123"),
+            {"action": "video", "video_url": "https://www.youtube.com/watch?v=abc123"},
+        )
 
 
 if __name__ == "__main__":
