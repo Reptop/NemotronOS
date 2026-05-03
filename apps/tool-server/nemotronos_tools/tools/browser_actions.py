@@ -81,3 +81,42 @@ def browser_press(
     if not key:
         raise ValueError("browser_press requires key.")
     return browser_service.press(key)
+
+
+def gmail_open(
+    arguments: dict[str, Any],
+    browser_service: BrowserAutomationService,
+) -> dict[str, Any]:
+    view = str(arguments.get("view") or "inbox").strip() or "inbox"
+    return browser_service.gmail_open(view=view)
+
+
+def gmail_search(
+    arguments: dict[str, Any],
+    browser_service: BrowserAutomationService,
+) -> dict[str, Any]:
+    query = str(arguments.get("query") or "").strip()
+    if not query:
+        raise ValueError("gmail_search requires query.")
+    return browser_service.gmail_search(query=query)
+
+
+def gmail_compose_draft(
+    arguments: dict[str, Any],
+    browser_service: BrowserAutomationService,
+) -> dict[str, Any]:
+    to = str(arguments.get("to") or "").strip()
+    subject = str(arguments.get("subject") or "").strip()
+    body = str(arguments.get("body") or "").strip()
+    if not to:
+        raise ValueError("gmail_compose_draft requires to.")
+    if not body:
+        raise ValueError("gmail_compose_draft requires body.")
+    return browser_service.gmail_compose_draft(to=to, subject=subject, body=body)
+
+def gmail_send_current_draft(
+    arguments: dict[str, Any],
+    browser_service: BrowserAutomationService,
+) -> dict[str, Any]:
+    del arguments
+    return browser_service.gmail_send_current_draft()

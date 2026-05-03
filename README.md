@@ -183,7 +183,7 @@ Browser automation setup for `TOOL_MODE=windows`:
 
 ```bash
 BROWSER_AUTOMATION_ENABLED=true
-BROWSER_USER_DATA_DIR=C:\Users\<you>\AppData\Local\Google\Chrome\User Data
+BROWSER_USER_DATA_DIR="C:\Users\<you>\AppData\Local\Google\Chrome\User Data"
 BROWSER_PROFILE_DIR=Default
 BROWSER_HEADLESS=false
 BROWSER_DEFAULT_TIMEOUT_MS=10000
@@ -192,7 +192,7 @@ BROWSER_DEFAULT_TIMEOUT_MS=10000
 Optional override:
 
 ```bash
-BROWSER_CHROME_EXECUTABLE=C:\Program Files\Google\Chrome\Application\chrome.exe
+BROWSER_CHROME_EXECUTABLE="C:\Program Files\Google\Chrome\Application\chrome.exe"
 ```
 
 The managed browser session is separate from arbitrary already-open browser windows or tabs. Use a dedicated persistent Chrome profile for NemotronOS automation so logged-in state is predictable and profile locking is less likely.
@@ -208,6 +208,16 @@ Browser test prompts:
 `To cnn.com.`
 
 `To Canvas.`
+
+Gmail/browser-agent test prompts:
+
+`Open Gmail.`
+
+`Search my Gmail for from Alice invoices.`
+
+`Draft an email to alice@example.com subject Running late saying "I am running five minutes late."`
+
+The Gmail path uses the managed Playwright Chrome session. It can open Gmail, search Gmail, and compose a draft. It intentionally does not send email yet; sending remains a manual review step until the approval flow is hardened for irreversible external actions.
 
 Canvas course test prompt:
 

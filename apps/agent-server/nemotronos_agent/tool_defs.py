@@ -202,6 +202,63 @@ def tool_definitions() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "gmail_open",
+            "description": (
+                "Open Gmail in the managed Chrome automation session and return a DOM snapshot. "
+                "Use this for inbox, sent, drafts, starred, or all-mail navigation."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "view": {
+                        "type": "string",
+                        "enum": ["inbox", "sent", "drafts", "starred", "all"],
+                    }
+                },
+            },
+        },
+        {
+            "name": "gmail_search",
+            "description": (
+                "Search Gmail in the managed Chrome automation session and return a DOM snapshot "
+                "of the result page. This reads existing mail state only."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            },
+        },
+        {
+            "name": "gmail_compose_draft",
+            "description": (
+                "Compose a Gmail draft without sending it. "
+                "For send-email requests, call this first to create the draft, then call "
+                "gmail_send_current_draft only after explicit user approval."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "to": {"type": "string"},
+                    "subject": {"type": "string"},
+                    "body": {"type": "string"},
+                },
+                "required": ["to", "body"],
+            },
+        },
+        {
+            "name": "gmail_send_current_draft",
+            "description": (
+                "Send the currently open Gmail compose draft. "
+                "This is a high-impact external action and must only be used after "
+                "the draft has been composed and the user explicitly approves sending it."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+        {
             "name": "youtube_open",
             "description": (
                 "Open YouTube home, search YouTube for a requested video/title, "

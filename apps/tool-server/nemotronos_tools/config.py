@@ -44,7 +44,7 @@ def get_settings() -> ToolServerSettings:
             "DEFAULT_DOWNLOADS_PATH",
             r"C:\Users\Raed\Downloads",
         ),
-        browser_automation_enabled=_env_bool("BROWSER_AUTOMATION_ENABLED", False),
+        browser_automation_enabled=_env_bool("BROWSER_AUTOMATION_ENABLED", True),
         browser_chrome_executable=os.getenv("BROWSER_CHROME_EXECUTABLE", "").strip(),
         browser_user_data_dir=os.getenv("BROWSER_USER_DATA_DIR", "").strip(),
         browser_profile_dir=os.getenv("BROWSER_PROFILE_DIR", "Default").strip() or "Default",

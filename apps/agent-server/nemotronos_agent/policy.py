@@ -36,6 +36,8 @@ class PolicyEngine:
             "browser_session_ensure",
             "browser_navigate",
             "browser_snapshot",
+            "gmail_open",
+            "gmail_search",
         }:
             return PolicyDecision(
                 tool_name=tool_name,
@@ -109,6 +111,37 @@ class PolicyEngine:
                 risk_level="medium",
                 allowed=True,
                 reason="Typing into a managed browser page changes external state and requires approval.",
+            )
+
+        if tool_name == "gmail_compose_draft":
+            body = str(arguments.get("body", ""))
+            recipient = str(arguments.get("to", "")).strip()
+            if not recipient:
+                return PolicyDecision(
+                    tool_name=tool_name,
+                    risk_level="medium",
+                    allowed=False,
+                    reason="Gmail draft composition requires a recipient.",
+                )
+            if len(body) > 4000:
+                return PolicyDecision(
+                    tool_name=tool_name,
+                    risk_level="medium",
+                    allowed=False,
+                    reason="Gmail draft bodies are limited to 4000 characters in the demo path.",
+                )
+            return PolicyDecision(
+                tool_name=tool_name,
+                risk_level="medium",
+                allowed=True,
+                reason="Composing a Gmail draft changes external browser state and requires approval.",
+            )
+        if tool_name == "gmail_send_current_draft":
+            return PolicyDecision(
+                tool_name=tool_name,
+                risk_level="high",
+                allowed=True,
+                reason="Sending an email is an external communication action and requires explicit approval.",
             )
 
         if tool_name in {"mouse_click", "youtube_click_video"}:

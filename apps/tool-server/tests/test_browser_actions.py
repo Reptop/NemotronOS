@@ -11,6 +11,9 @@ from nemotronos_tools.tools.browser_actions import (
     browser_session_ensure,
     browser_snapshot,
     browser_type,
+    gmail_compose_draft,
+    gmail_open,
+    gmail_search,
 )
 from nemotronos_tools.tools.browser_automation import (
     DisabledBrowserAutomationService,
@@ -65,6 +68,32 @@ class BrowserActionTests(unittest.TestCase):
     def test_browser_navigate_normalizes_domain(self) -> None:
         result = browser_navigate({"url": "github.com"}, MockBrowserAutomationService())
         self.assertEqual(result["url"], "https://github.com")
+
+    def test_mock_gmail_open_and_search_return_email_metadata(self) -> None:
+        service = MockBrowserAutomationService()
+
+        inbox = gmail_open({"view": "inbox"}, service)
+        self.assertEqual(inbox["email"]["provider"], "gmail")
+        self.assertEqual(inbox["email"]["view"], "inbox")
+
+        search_result = gmail_search({"query": "from:alice"}, service)
+        self.assertEqual(search_result["email"]["action"], "search")
+        self.assertEqual(search_result["email"]["query"], "from:alice")
+        self.assertIn("#search/from%3Aalice", search_result["url"])
+
+    def test_mock_gmail_compose_draft_does_not_send(self) -> None:
+        result = gmail_compose_draft(
+            {
+                "to": "alice@example.com",
+                "subject": "Status",
+                "body": "Running five minutes late.",
+            },
+            MockBrowserAutomationService(),
+        )
+
+        self.assertEqual(result["email"]["action"], "compose_draft")
+        self.assertFalse(result["email"]["sent"])
+        self.assertEqual(result["email"]["to"], "alice@example.com")
 
 
 if __name__ == "__main__":

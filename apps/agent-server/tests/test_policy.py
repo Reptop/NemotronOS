@@ -24,6 +24,23 @@ class PolicyEngineTests(unittest.TestCase):
         decision = self.policy.classify("browser_type", {"text": "x" * 501})
         self.assertFalse(decision.allowed)
 
+    def test_gmail_read_actions_are_low_risk_and_drafts_are_medium_risk(self) -> None:
+        for tool_name in ("gmail_open", "gmail_search"):
+            decision = self.policy.classify(tool_name, {"query": "from:alice"})
+            self.assertEqual(decision.risk_level, "low")
+            self.assertTrue(decision.allowed)
+
+        draft_decision = self.policy.classify(
+            "gmail_compose_draft",
+            {
+                "to": "alice@example.com",
+                "subject": "Status",
+                "body": "Running five minutes late.",
+            },
+        )
+        self.assertEqual(draft_decision.risk_level, "medium")
+        self.assertTrue(draft_decision.allowed)
+
 
 if __name__ == "__main__":
     unittest.main()

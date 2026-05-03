@@ -87,6 +87,65 @@ class _BrowserWorker:
         return {"tool": name, **arguments}
 
 
+class _GmailDraftModelClient:
+    async def plan_first_action(
+        self,
+        goal: str,
+        tool_definitions: list[dict[str, Any]],
+    ) -> PlannedToolCall:
+        del goal, tool_definitions
+        return PlannedToolCall(
+            name="gmail_compose_draft",
+            arguments={
+                "to": "alice@example.com",
+                "subject": "Status",
+                "body": "Running five minutes late.",
+            },
+        )
+
+    async def plan_next_action(
+        self,
+        goal: str,
+        tool_definitions: list[dict[str, Any]],
+        previous_tool_name: str,
+        previous_result: dict[str, Any],
+        recent_tool_calls: list[dict[str, Any]] | None = None,
+    ) -> PlannedToolCall:
+        del goal, tool_definitions, previous_tool_name, previous_result, recent_tool_calls
+        raise AssertionError("Gmail draft creation should not enter the browser-agent loop.")
+
+
+class _BrowserThenGmailDraftModelClient:
+    async def plan_first_action(
+        self,
+        goal: str,
+        tool_definitions: list[dict[str, Any]],
+    ) -> PlannedToolCall:
+        del goal, tool_definitions
+        return PlannedToolCall(
+            name="browser_session_ensure",
+            arguments={"start_url": "https://mail.google.com"},
+        )
+
+    async def plan_next_action(
+        self,
+        goal: str,
+        tool_definitions: list[dict[str, Any]],
+        previous_tool_name: str,
+        previous_result: dict[str, Any],
+        recent_tool_calls: list[dict[str, Any]] | None = None,
+    ) -> PlannedToolCall:
+        del goal, tool_definitions, previous_tool_name, previous_result, recent_tool_calls
+        return PlannedToolCall(
+            name="gmail_compose_draft",
+            arguments={
+                "to": "alice@example.com",
+                "subject": "Status",
+                "body": "Running five minutes late.",
+            },
+        )
+
+
 class CoordinatorBrowserTests(unittest.TestCase):
     def test_browser_mutation_waits_for_approval_then_resumes(self) -> None:
         task_store = TaskStore()
@@ -121,6 +180,59 @@ class CoordinatorBrowserTests(unittest.TestCase):
             [call[0] for call in worker.calls],
             ["browser_session_ensure", "browser_click", "notify_user"],
         )
+
+    def test_gmail_draft_waits_for_approval_before_composing(self) -> None:
+        task_store = TaskStore()
+        worker = _BrowserWorker()
+        coordinator = AgentCoordinator(
+            task_store=task_store,
+            event_log=EventLog(),
+            tool_registry=ToolRegistry(),
+            policy_engine=PolicyEngine(),
+            model_client=_GmailDraftModelClient(),
+            worker=worker,
+        )
+        task = task_store.create_task("Draft an email to Alice saying I am late.")
+
+        asyncio.run(coordinator.process_task(task.id))
+
+        waiting_task = task_store.get_task(task.id)
+        self.assertIsNotNone(waiting_task)
+        assert waiting_task is not None
+        self.assertEqual(waiting_task.state, "waiting_for_approval")
+        self.assertEqual(waiting_task.pending_approval.tool_name, "gmail_compose_draft")
+        self.assertEqual(worker.calls, [])
+
+        asyncio.run(coordinator.approve_task(task.id, True))
+        asyncio.run(coordinator.run_approved_action(task.id))
+
+        completed_task = task_store.get_task(task.id)
+        self.assertIsNotNone(completed_task)
+        assert completed_task is not None
+        self.assertEqual(completed_task.state, "completed")
+        self.assertEqual([call[0] for call in worker.calls], ["gmail_compose_draft"])
+
+    def test_gmail_draft_from_browser_loop_still_waits_for_approval(self) -> None:
+        task_store = TaskStore()
+        worker = _BrowserWorker()
+        coordinator = AgentCoordinator(
+            task_store=task_store,
+            event_log=EventLog(),
+            tool_registry=ToolRegistry(),
+            policy_engine=PolicyEngine(),
+            model_client=_BrowserThenGmailDraftModelClient(),
+            worker=worker,
+        )
+        task = task_store.create_task("Open Gmail and draft an email to Alice.")
+
+        asyncio.run(coordinator.process_task(task.id))
+
+        waiting_task = task_store.get_task(task.id)
+        self.assertIsNotNone(waiting_task)
+        assert waiting_task is not None
+        self.assertEqual(waiting_task.state, "waiting_for_approval")
+        self.assertEqual(waiting_task.pending_approval.tool_name, "gmail_compose_draft")
+        self.assertEqual([call[0] for call in worker.calls], ["browser_session_ensure"])
 
 
 if __name__ == "__main__":

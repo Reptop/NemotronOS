@@ -10,6 +10,7 @@ from nemotronos_agent.model_client import (
     _extract_browser_target,
     _extract_canvas_arguments,
     _extract_discord_message_arguments,
+    _extract_gmail_action,
     _extract_youtube_arguments,
 )
 
@@ -348,6 +349,7 @@ class OpenAICompatibleModelClientTests(unittest.TestCase):
         self.assertIn("noisy voice transcripts", system_prompt)
         self.assertIn("youtube_open", system_prompt)
         self.assertIn("discord_send_message", system_prompt)
+        self.assertIn("gmail_compose_draft", system_prompt)
 
     def test_falls_back_when_model_planning_fails(self) -> None:
         client = RecordingModelClient(
@@ -443,6 +445,34 @@ class OpenAICompatibleModelClientTests(unittest.TestCase):
         self.assertEqual(
             _extract_discord_message_arguments("send a message saying hello team"),
             {"text": "hello team", "open_if_needed": True},
+        )
+
+    def test_gmail_open_search_and_compose_fallbacks(self) -> None:
+        open_call = _extract_gmail_action("Open Gmail.")
+        self.assertIsNotNone(open_call)
+        assert open_call is not None
+        self.assertEqual(open_call.name, "gmail_open")
+        self.assertEqual(open_call.arguments, {"view": "inbox"})
+
+        search_call = _extract_gmail_action("Search my Gmail for from Alice invoices.")
+        self.assertIsNotNone(search_call)
+        assert search_call is not None
+        self.assertEqual(search_call.name, "gmail_search")
+        self.assertEqual(search_call.arguments, {"query": "from Alice invoices"})
+
+        compose_call = _extract_gmail_action(
+            'Send an email to alice@example.com subject Status saying "Running five minutes late."'
+        )
+        self.assertIsNotNone(compose_call)
+        assert compose_call is not None
+        self.assertEqual(compose_call.name, "gmail_compose_draft")
+        self.assertEqual(
+            compose_call.arguments,
+            {
+                "to": "alice@example.com",
+                "subject": "Status",
+                "body": "Running five minutes late.",
+            },
         )
 
 
