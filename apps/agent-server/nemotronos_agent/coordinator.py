@@ -358,7 +358,13 @@ class AgentCoordinator:
 
     def _is_notepad_typing_goal(self, goal: str) -> bool:
         lowered_goal = goal.lower()
-        return "notepad" in lowered_goal and "type" in lowered_goal
+        return "notepad" in lowered_goal and bool(
+            re.search(
+                r"\b(?:type|write|enter|paste|put|dictate|take\s+(?:a\s+)?note|"
+                r"jot|note\s+down)\b",
+                lowered_goal,
+            )
+        )
 
     def _should_click_youtube_video(self, arguments: dict[str, Any]) -> bool:
         action = str(arguments.get("action", "")).strip().lower()
@@ -1231,6 +1237,8 @@ def _spoken_language_name(language: str) -> str:
         "c++": "C++",
         "cs": "C#",
         "csharp": "C#",
+        "swift": "Swift",
+        "swiftui": "SwiftUI",
     }.get(cleaned, _fit_spoken_fragment(language.strip()))
 
 
@@ -1483,9 +1491,11 @@ def is_screen_narration_goal(goal: str) -> bool:
         re.search(
             r"\b(?:what(?:'s| is)?\s+(?:on\s+)?(?:my\s+)?screen|"
             r"what\s+am\s+i\s+looking\s+at|what\s+do\s+you\s+see|"
+            r"where\s+am\s+i|what\s+is\s+this|help\s+me\s+see|"
             r"describe\s+(?:my\s+|this\s+|the\s+|current\s+)?screen|"
             r"explain\s+(?:my\s+|this\s+|the\s+|current\s+)?screen|"
-            r"(?:explain|describe|summarize|read|tell\s+me\s+about)\s+"
+            r"(?:explain|describe|summarize|read|inspect|identify|orient|"
+            r"tell\s+me\s+about)\s+"
             r"(?:(?:my|the|this|current|active|foreground)\s+)*"
             r"(?:active\s+)?(?:window|app|application|desktop|screen|page|view)|"
             r"what\s+(?:window|app|application)\s+am\s+i\s+(?:on|in|using)|"
@@ -1561,7 +1571,8 @@ def extract_notepad_text(goal: str) -> str | None:
             return text
 
     command_match = re.search(
-        r"\btype\b(?:\s+(?:in|out|down|up|this|that|the|text|note))*"
+        r"\b(?:type|write|enter|paste|put|dictate|jot|note\s+down)\b"
+        r"(?:\s+(?:in\s+notepad|into\s+notepad|in|out|down|up|this|that|the|text|note|into))*"
         r"\s*[:,-]?\s+(.+?)(?:\s+(?:in|on)\s+it\.?)?$",
         goal,
         flags=re.IGNORECASE | re.DOTALL,

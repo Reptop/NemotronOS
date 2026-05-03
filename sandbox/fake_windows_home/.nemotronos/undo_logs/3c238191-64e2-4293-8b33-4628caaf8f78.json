@@ -1,0 +1,42 @@
+{
+  "plan_id": "3c238191-64e2-4293-8b33-4628caaf8f78",
+  "created_at": "2026-05-03T17:50:37.036266+00:00",
+  "root_path": "C:\\Users\\Raed\\Downloads",
+  "undo_operations": [
+    {
+      "operation": "move",
+      "source": "C:\\Users\\Raed\\Downloads\\PDFs\\invoice_april.pdf",
+      "destination": "C:\\Users\\Raed\\Downloads\\invoice_april.pdf"
+    },
+    {
+      "operation": "move",
+      "source": "C:\\Users\\Raed\\Downloads\\Text\\project_notes.txt",
+      "destination": "C:\\Users\\Raed\\Downloads\\project_notes.txt"
+    },
+    {
+      "operation": "move",
+      "source": "C:\\Users\\Raed\\Downloads\\Archives\\random.zip",
+      "destination": "C:\\Users\\Raed\\Downloads\\random.zip"
+    },
+    {
+      "operation": "move",
+      "source": "C:\\Users\\Raed\\Downloads\\PDFs\\resume.pdf",
+      "destination": "C:\\Users\\Raed\\Downloads\\resume.pdf"
+    },
+    {
+      "operation": "move",
+      "source": "C:\\Users\\Raed\\Downloads\\Images\\screenshot_001.png",
+      "destination": "C:\\Users\\Raed\\Downloads\\screenshot_001.png"
+    },
+    {
+      "operation": "move",
+      "source": "C:\\Users\\Raed\\Downloads\\Images\\screenshot_002.png",
+      "destination": "C:\\Users\\Raed\\Downloads\\screenshot_002.png"
+    },
+    {
+      "operation": "move",
+      "source": "C:\\Users\\Raed\\Downloads\\Data\\wildfire_dataset.csv",
+      "destination": "C:\\Users\\Raed\\Downloads\\wildfire_dataset.csv"
+    }
+  ]
+}

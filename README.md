@@ -184,6 +184,8 @@ Example:
 
 This is still a scaffold. The current recommended demo path is the refined Whisper-poll loop because it supports both `Jarvis` and `Computer`. It gives a short wake acknowledgement, gives a quick neutral acknowledgement after command submission, uses a more specific "Let me take a look" acknowledgement for accessibility narration, and speaks again for unsupported, failed, approval-gated, spoken-result, or safely narrated completed actions. Speech output is serialized so the quick acknowledgement and final narration do not overlap. If a task is still running after the short foreground wait, the voice agent keeps a background watcher alive so delayed accessibility responses such as "explain the active window" are still spoken when the task completes. The next privacy step is local NVIDIA Speech NIM/Riva ASR and TTS when those services are available, plus either a custom openWakeWord model or another local detector for "Computer."
 
+The planner is model-first, but common speech variants are normalized for the active demo tools. Phrases such as `pull up`, `bring up`, `take me to`, `put on`, `look up`, `write in Notepad`, `prepare an email`, `show me Canvas homework`, `help me see this page`, and `make me code` route to the same tools as their more literal equivalents.
+
 For a more human-sounding demo voice, keep the existing temporary OpenAI dev key in `.env` and set:
 
 ```bash
@@ -287,7 +289,9 @@ Code generation test prompt:
 
 `Code me a Python script that prints the Fibonacci sequence.`
 
-This asks the model to generate a single-file code snippet, opens a fresh VS Code window, and inserts the generated code without saving or running it. The tool server uses `VSCODE_COMMAND`, defaulting to `code`, so install the VS Code shell command or set `VSCODE_COMMAND` to the VS Code CLI path if Windows cannot find it.
+`Code me a tic-tac-toe game written in Swift.`
+
+This asks the model to generate a single-file code snippet, opens a fresh VS Code window, and inserts the generated code without saving or running it. Coding requests can override an unsupported planner response when the intent is clear, so voice commands like "code me a game" still route to VS Code even if the local model initially picks `notify_user`. The tool server uses `VSCODE_COMMAND`, defaulting to `code`, so install the VS Code shell command or set `VSCODE_COMMAND` to the VS Code CLI path if Windows cannot find it.
 
 If the tool server is launched from a hidden or non-interactive service context, Windows may create a process without a focusable desktop window. Run it from the signed-in desktop session for real UI interaction tests.
 

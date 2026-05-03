@@ -71,8 +71,7 @@ class MockModelClient(ModelClient):
     ) -> PlannedToolCall:
         del tool_definitions
 
-        lowered_goal = goal.lower()
-        if "organize" in lowered_goal and "download" in lowered_goal:
+        if _looks_like_downloads_organization_goal(goal):
             return PlannedToolCall(
                 name="fs_plan_changes",
                 arguments={
@@ -81,6 +80,14 @@ class MockModelClient(ModelClient):
                     "allowed_operations": ["mkdir", "move"],
                 },
                 rationale="Create a dry-run organization plan for the Downloads folder first.",
+            )
+
+        notepad_arguments = _extract_notepad_launch_arguments(goal)
+        if notepad_arguments:
+            return PlannedToolCall(
+                name="app_launch",
+                arguments=notepad_arguments,
+                rationale="Open Notepad so the coordinator can type the requested text.",
             )
 
         code_arguments = _extract_code_request_arguments(goal)
@@ -273,16 +280,84 @@ class OpenAICompatibleModelClient(ModelClient):
             tool_name = "email_create_draft"
             arguments = email_arguments
             rationale = "Normalize email compose workflow to Gmail draft creation."
+        code_arguments = _extract_code_request_arguments(goal)
+        discord_arguments = _extract_discord_message_arguments(goal)
+        if discord_arguments and tool_name != "discord_send_message" and not email_arguments:
+            tool_name = "discord_send_message"
+            arguments = discord_arguments
+            rationale = "Normalize chat/message wording to Discord message sending."
+        if (
+            code_arguments
+            and tool_name != "vscode_paste_code"
+            and not email_arguments
+            and not discord_arguments
+        ):
+            tool_name = "vscode_paste_code"
+            arguments = code_arguments
+            rationale = "Normalize coding request to VS Code code generation."
         canvas_assignment_arguments = _extract_canvas_assignment_arguments(goal)
         if canvas_assignment_arguments and tool_name != "canvas_list_assignments_due_soon":
             tool_name = "canvas_list_assignments_due_soon"
             arguments = canvas_assignment_arguments
             rationale = "Normalize Canvas due-date workflow to assignment lookup first."
+        canvas_arguments = _extract_canvas_arguments(goal)
+        if (
+            canvas_arguments
+            and not canvas_assignment_arguments
+            and tool_name != "canvas_open_course"
+        ):
+            tool_name = "canvas_open_course"
+            arguments = canvas_arguments
+            rationale = "Normalize Canvas course navigation wording."
         accessibility_arguments = _extract_accessibility_describe_arguments(goal)
         if accessibility_arguments and tool_name != "accessibility_describe_screen":
             tool_name = "accessibility_describe_screen"
             arguments = accessibility_arguments
             rationale = "Normalize screen-context request to accessibility narration."
+        youtube_arguments = _extract_youtube_arguments(goal)
+        if youtube_arguments and tool_name != "youtube_open":
+            tool_name = "youtube_open"
+            arguments = youtube_arguments
+            rationale = "Normalize YouTube wording to YouTube opening/search."
+        browser_target = _extract_browser_target(goal)
+        if (
+            browser_target
+            and tool_name == "notify_user"
+            and not any(
+                (
+                    email_arguments,
+                    code_arguments,
+                    discord_arguments,
+                    canvas_assignment_arguments,
+                    canvas_arguments,
+                    accessibility_arguments,
+                    youtube_arguments,
+                )
+            )
+        ):
+            tool_name = "browser_open"
+            arguments = {"url": browser_target}
+            rationale = "Normalize website navigation wording."
+        notepad_arguments = _extract_notepad_launch_arguments(goal)
+        if (
+            notepad_arguments
+            and tool_name == "notify_user"
+            and not any(
+                (
+                    email_arguments,
+                    code_arguments,
+                    discord_arguments,
+                    canvas_assignment_arguments,
+                    canvas_arguments,
+                    accessibility_arguments,
+                    youtube_arguments,
+                    browser_target,
+                )
+            )
+        ):
+            tool_name = "app_launch"
+            arguments = notepad_arguments
+            rationale = "Normalize Notepad dictation wording."
 
         arguments = self._normalize_first_action_arguments(goal, tool_name, arguments)
 
@@ -454,14 +529,21 @@ class OpenAICompatibleModelClient(ModelClient):
             "Use Windows-style paths when paths are needed. "
             "If the user asks to organize Downloads and see the plan first, call "
             f"fs_plan_changes on {self.settings.default_downloads_path}. "
-            "If the user asks to type in Notepad, call app_launch with app_name='notepad'; "
-            "the coordinator will type the requested text afterward. "
-            "If the user asks for a website/domain/URL, call browser_open. "
+            "Treat semantically equivalent phrasing as the same command: open, launch, "
+            "start, pull up, bring up, take me to, go to, navigate to, put on, play, "
+            "watch, search for, find, show me, write, type, enter, compose, draft, "
+            "send, post, describe, read, explain, make, build, create, generate, and code. "
+            "If the user asks to type, write, enter, dictate, paste, or put text in Notepad, "
+            "call app_launch with app_name='notepad'; the coordinator will type the requested "
+            "text afterward. "
+            "If the user asks for a website/domain/URL, including phrasing like visit, "
+            "load, pull up, bring up, take me to, or go to, call browser_open. "
             "If the user asks for a general browser task that requires reading or interacting "
             "with page content over multiple steps, prefer the managed browser automation tools: "
             "browser_session_ensure, browser_navigate, browser_snapshot, browser_click, "
             "browser_type, browser_select_option, and browser_press. "
-            "If the user asks for Canvas course navigation, call canvas_open_course with "
+            "If the user asks for Canvas course/class navigation with wording like open, "
+            "show, bring up, pull up, take me to, or go to, call canvas_open_course with "
             "the natural course name in course_query. "
             "If the user asks for Canvas assignments, homework, to-do items, or due dates, "
             "call canvas_list_assignments_due_soon with days_ahead; use 7 for 'next week'. "
@@ -470,15 +552,18 @@ class OpenAICompatibleModelClient(ModelClient):
             "page, screen, desktop, or visible context, call accessibility_describe_screen "
             "with include_screenshot=true and max_windows=12. "
             "If the user asks for YouTube content, call youtube_open. Use action='random' "
-            "for random/recommended video requests, action='search' with query and "
-            "prefer_video_results=true for video/title/channel searches, and action='video' "
-            "only for exact YouTube URLs or IDs. "
-            "If the user asks to send/post/type a message to Discord or the active chat, "
+            "for random/recommended/any/surprise video requests, action='search' with query and "
+            "prefer_video_results=true for play/watch/find/search/look up/pull up video, title, "
+            "creator, or channel searches, and action='video' only for exact YouTube URLs or IDs. "
+            "If the user asks to send/post/type/write/paste/reply/say a message to Discord "
+            "or the active chat, "
             "call discord_send_message with only the message body in text. "
-            "If the user asks to write, compose, draft, or send an email or Gmail message, "
+            "If the user asks to write, compose, draft, create, prepare, or send an email, "
+            "mail, e-mail, Gmail, or note to an email address, "
             "call email_create_draft with to, subject when present, and body; never send it. "
-            "If the user asks you to write, code, build, create, or generate software, "
-            "scripts, functions, components, web pages, or code snippets, call "
+            "If the user asks you to write, code, build, make, create, generate, prototype, "
+            "implement, or whip up software, scripts, functions, components, games, mobile apps, "
+            "websites, web pages, or code snippets, call "
             "vscode_paste_code with request set to the full coding request and optional "
             "language if obvious. Do not put generated code in the tool arguments. "
             "If no available tool can reasonably help, call notify_user with a brief message."
@@ -506,23 +591,31 @@ class OpenAICompatibleModelClient(ModelClient):
             "For generic web tasks that require reading or interacting with live page content, "
             "prefer browser_session_ensure, browser_navigate, browser_snapshot, browser_click, "
             "browser_type, browser_select_option, and browser_press. "
+            "Map equivalent phrases to the same tool: open/launch/start/pull up/bring up, "
+            "go to/take me to/navigate to/visit/load, play/watch/find/search/look up, "
+            "write/type/enter/paste, compose/draft/prepare, describe/read/explain, "
+            "make/build/create/generate/code/prototype. "
             "For YouTube searches, use youtube_open with action='search', query, "
             "and prefer_video_results=true. "
-            "For random YouTube video requests, use youtube_open with action='random'. "
-            "For Notepad typing, use app_launch with app_name='notepad'. "
+            "For random, recommended, any, or surprise YouTube video requests, use youtube_open "
+            "with action='random'. "
+            "For Notepad typing, writing, entering, dictation, or paste requests, use app_launch "
+            "with app_name='notepad'. "
             "For accessibility or screen-context requests, including describing, reading, "
             "summarizing, or explaining the current screen, active window, foreground app, "
             "visible page, or desktop context, use accessibility_describe_screen with "
             "include_screenshot=true and max_windows=12. "
-            "For Discord messages, use discord_send_message and put only the message body "
+            "For Discord or active-chat messages, use discord_send_message and put only the message body "
             "in text. For Canvas assignment/homework due-date requests, use "
             "canvas_list_assignments_due_soon. For Canvas course navigation, use "
             "canvas_open_course. "
-            "For email or Gmail compose requests, use email_create_draft and include "
+            "For email, e-mail, mail, or Gmail compose/draft/prepare requests, use email_create_draft and include "
             "to, subject when present, and body; do not send email. "
-            "For normal websites/domains/URLs, use browser_open. "
-            "For coding requests, use vscode_paste_code with request set to the full "
-            "coding request and language only when obvious; do not include generated code. "
+            "For normal websites/domains/URLs, including visit/load/pull up/take me to phrasing, "
+            "use browser_open. "
+            "For coding requests, including programs, games, mobile apps, websites, scripts, functions, "
+            "components, and code snippets, use vscode_paste_code with request set to "
+            "the full coding request and language only when obvious; do not include generated code. "
             f"Tool schemas: {tool_schemas}"
         )
 
@@ -719,12 +812,10 @@ class OpenAICompatibleModelClient(ModelClient):
         return cleaned.strip()
 
     def _should_force_downloads_plan(self, goal: str) -> bool:
-        lowered_goal = goal.lower()
-        return "organize" in lowered_goal and "download" in lowered_goal
+        return _looks_like_downloads_organization_goal(goal)
 
     def _should_force_notepad_launch(self, goal: str) -> bool:
-        lowered_goal = goal.lower()
-        return "notepad" in lowered_goal and "type" in lowered_goal
+        return _extract_notepad_launch_arguments(goal) is not None
 
     def _tool_choice(self, force_downloads_plan: bool) -> str | dict[str, Any]:
         if force_downloads_plan:
@@ -930,6 +1021,30 @@ def _compact_json(value: Any, max_characters: int) -> str:
     return f"{text[: max_characters - 28]}... <truncated for prompt>"
 
 
+def _looks_like_downloads_organization_goal(goal: str) -> bool:
+    lowered_goal = goal.lower()
+    has_downloads = re.search(r"\bdownloads?\b", lowered_goal)
+    has_organize_intent = re.search(
+        r"\b(?:organize|organise|sort|clean\s+up|cleanup|tidy|arrange|"
+        r"group|categorize|categorise|file|move)\b",
+        lowered_goal,
+    )
+    return bool(has_downloads and has_organize_intent)
+
+
+def _extract_notepad_launch_arguments(goal: str) -> dict[str, Any] | None:
+    lowered_goal = goal.lower()
+    if "notepad" not in lowered_goal:
+        return None
+    if not re.search(
+        r"\b(?:type|write|enter|paste|put|dictate|take\s+(?:a\s+)?note|"
+        r"jot|note\s+down)\b",
+        lowered_goal,
+    ):
+        return None
+    return {"app_name": "notepad"}
+
+
 def _extract_browser_target(goal: str) -> str | None:
     lowered_goal = goal.lower()
     direct_web_target = _extract_direct_web_target(goal)
@@ -947,6 +1062,12 @@ def _extract_browser_target(goal: str) -> str | None:
             "web site",
             "navigate to",
             "go to",
+            "goto",
+            "take me to",
+            "bring up",
+            "pull up",
+            "load",
+            "visit",
             "open site",
             "open webpage",
             "open web page",
@@ -956,8 +1077,11 @@ def _extract_browser_target(goal: str) -> str | None:
         return None
 
     patterns = (
-        r"\b(?:navigate|go|browse)\s+to\s+(.+)$",
-        r"\bopen\s+(?:my\s+)?(?:web\s*)?browser\s+(?:and\s+)?(?:navigate\s+to|go\s+to|to)\s+(.+)$",
+        r"\b(?:navigate|go|goto|browse|visit|load)\s+(?:to\s+)?(.+)$",
+        r"\b(?:take|bring)\s+me\s+to\s+(.+)$",
+        r"\bpull\s+up\s+(.+)$",
+        r"\bbring\s+up\s+(.+)$",
+        r"\bopen\s+(?:my\s+)?(?:web\s*)?browser\s+(?:and\s+)?(?:navigate\s+to|go\s+to|to|on|at)?\s*(.+)$",
         r"\bopen\s+(?:the\s+)?(?:website|web\s+site|webpage|web\s+page)\s+(.+)$",
     )
     for pattern in patterns:
@@ -1042,7 +1166,13 @@ def _clean_direct_navigation_fragment(goal: str) -> str:
     cleaned = goal.strip(" \t\n\r.,;:\"'")
     cleaned = re.sub(r"^(?:computer|jarvis)\s*[,;:-]?\s*", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(
-        r"^(?:please\s+)?(?:open|navigate|go|browse)\s+(?:to\s+)?",
+        r"^(?:please\s+)?(?:open|launch|start|navigate|go|goto|browse|visit|load)\s+(?:to\s+)?",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"^(?:please\s+)?(?:take\s+me\s+to|bring\s+up|pull\s+up)\s+",
         "",
         cleaned,
         flags=re.IGNORECASE,
@@ -1054,12 +1184,16 @@ def _clean_direct_navigation_fragment(goal: str) -> str:
 def _extract_code_request_arguments(goal: str) -> dict[str, Any] | None:
     lowered_goal = goal.lower()
     has_code_intent = re.search(
-        r"\b(?:code|coding|program|script|function|component|web\s?page|html|css|"
-        r"javascript|typescript|python|react|node|api|game)\b",
+        r"\b(?:code|coding|program|software|script|function|component|web\s?page|"
+        r"website|app|application|html|css|"
+        r"javascript|typescript|python|react|node|api|game|swift|swiftui|kotlin|"
+        r"java|rust|golang|go|ruby|lua|csharp|c#|c\+\+|cpp|sql|bash|"
+        r"shell|powershell)\b",
         lowered_goal,
     )
     has_creation_verb = re.search(
-        r"\b(?:write|make|build|create|generate|code|implement|program)\b",
+        r"\b(?:write|make|build|create|generate|code|implement|program|prototype|"
+        r"draft|give\s+me|make\s+me|create\s+me|build\s+me|whip\s+up)\b",
         lowered_goal,
     )
     mentions_vscode = re.search(r"\b(?:vs\s*code|vscode|visual\s+studio\s+code)\b", lowered_goal)
@@ -1080,27 +1214,27 @@ def _extract_code_request_arguments(goal: str) -> dict[str, Any] | None:
 
 def _extract_email_draft_arguments(goal: str) -> dict[str, Any] | None:
     lowered_goal = goal.lower()
-    has_email_intent = re.search(r"\b(?:email|gmail|e-mail)\b", lowered_goal)
+    has_email_intent = re.search(r"\b(?:email|gmail|e-mail|mail)\b", lowered_goal)
     has_email_address = re.search(
         r"\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b",
         lowered_goal,
     )
     has_compose_verb = re.search(
-        r"\b(?:write|compose|draft|create|make|send)\b",
+        r"\b(?:write|compose|draft|create|make|send|prepare)\b",
         lowered_goal,
     )
     if not ((has_email_intent or has_email_address) and has_compose_verb):
         return None
 
     patterns = (
-        r"\b(?:write|compose|draft|create|make|send)\s+(?:an?\s+)?"
-        r"(?:gmail\s+)?(?:e-?mail|message)\s+to\s+(.+?)\s+"
-        r"(?:with\s+(?:the\s+)?)?subject\s+(.+?)\s+"
+        r"\b(?:write|compose|draft|create|make|send|prepare)\s+(?:an?\s+)?"
+        r"(?:gmail\s+)?(?:e-?mail|mail|message|note)\s+to\s+(.+?)\s+"
+        r"(?:with\s+(?:the\s+)?)?subject(?:\s+line)?\s+(.+?)\s+"
         r"(?:and\s+)?(?:body|message|saying|that\s+says)\s+(.+)$",
-        r"\b(?:write|compose|draft|create|make|send)\s+(?:an?\s+)?"
-        r"(?:gmail\s+)?(?:e-?mail|message)\s+to\s+(.+?)\s+"
+        r"\b(?:write|compose|draft|create|make|send|prepare)\s+(?:an?\s+)?"
+        r"(?:gmail\s+)?(?:e-?mail|mail|message|note)\s+to\s+(.+?)\s+"
         r"(?:saying|that\s+says|with\s+the\s+message|with\s+message|body|message)\s+(.+)$",
-        r"\b(?:email|gmail|e-mail)\s+(.+?)\s+"
+        r"\b(?:email|gmail|e-mail|mail)\s+(.+?)\s+"
         r"(?:saying|that\s+says|with\s+the\s+message|with\s+message|body|message)\s+(.+)$",
     )
     for index, pattern in enumerate(patterns):
@@ -1129,14 +1263,15 @@ def _extract_canvas_assignment_arguments(goal: str) -> dict[str, Any] | None:
     if "canvas" not in lowered_goal:
         return None
     if not re.search(
-        r"\b(?:assignment|assignments|homework|to-?do|todo|due|deadline|deadlines)\b",
+        r"\b(?:assignment|assignments|homework|work|task|tasks|to-?do|todo|due|"
+        r"upcoming|deadline|deadlines|quiz|quizzes|project|projects)\b",
         lowered_goal,
     ):
         return None
 
     days_ahead = 7
     days_match = re.search(
-        r"\b(?:next|within|in)\s+(\d{1,2})\s+(?:day|days)\b",
+        r"\b(?:next|within|in|coming)\s+(\d{1,2})\s+(?:day|days)\b",
         lowered_goal,
     )
     if days_match:
@@ -1172,9 +1307,9 @@ def _extract_canvas_arguments(goal: str) -> dict[str, Any] | None:
         return None
 
     patterns = (
-        r"\bcanvas\b.*?\b(?:navigate|go|open|take)\s+(?:me\s+)?(?:to\s+)?"
+        r"\bcanvas\b.*?\b(?:navigate|go|open|show|bring|pull|load|take)\s+(?:me\s+)?(?:up\s+)?(?:to\s+)?"
         r"(?:my\s+|the\s+)?(.+?)\s+(?:course|class)\b",
-        r"\b(?:navigate|go|open|take)\s+(?:me\s+)?(?:to\s+)?"
+        r"\b(?:navigate|go|open|show|bring|pull|load|take)\s+(?:me\s+)?(?:up\s+)?(?:to\s+)?"
         r"(?:my\s+|the\s+)?(.+?)\s+(?:course|class)\s+(?:on|in)\s+canvas\b",
     )
     for pattern in patterns:
@@ -1192,7 +1327,8 @@ def _extract_accessibility_describe_arguments(goal: str) -> dict[str, Any] | Non
     lowered_goal = goal.lower()
     if re.search(
         r"\b(?:what\s+am\s+i\s+looking\s+at|what\s+do\s+you\s+see|"
-        r"what(?:'s| is)?\s+on\s+(?:my\s+)?screen|screen\s+context)\b",
+        r"what(?:'s| is)?\s+on\s+(?:my\s+)?screen|where\s+am\s+i|"
+        r"what\s+is\s+this|help\s+me\s+see|screen\s+context)\b",
         lowered_goal,
     ):
         return {
@@ -1202,13 +1338,15 @@ def _extract_accessibility_describe_arguments(goal: str) -> dict[str, Any] | Non
 
     has_visual_context_noun = re.search(
         r"\b(?:screen|window|desktop|foreground|active|current|visible|view|page|"
-        r"app|application|ui|interface|context)\b",
+        r"app|application|program|ui|interface|context)\b",
         lowered_goal,
     )
     has_describe_intent = re.search(
         r"\b(?:describe|explain|summarize|read|inspect|look\s+at|looking\s+at|"
+        r"identify|orient|orientation|help\s+me\s+see|"
         r"what\s+(?:am\s+i\s+looking\s+at|do\s+you\s+see|is\s+on)|"
-        r"what(?:'s| is)\s+(?:on|this|the|my)|"
+        r"what(?:'s| is)\s+(?:on|this|the|my|active|current)|"
+        r"where\s+am\s+i|"
         r"tell\s+me\s+(?:what|about)|give\s+me|show\s+me|guide\s+me)\b",
         lowered_goal,
     )
@@ -1229,13 +1367,15 @@ def _extract_youtube_arguments(goal: str) -> dict[str, Any] | None:
     if url_match:
         return {"action": "video", "video_url": url_match.group(0).rstrip(".,;")}
 
-    if re.search(r"\b(random|recommend|recommended|surprise me)\b", lowered_goal):
+    if re.search(r"\b(random|recommend|recommended|recommendation|any|surprise\s+me|something)\b", lowered_goal):
         return {"action": "random"}
 
     query_patterns = (
-        r"\b(?:search\s+(?:youtube\s+)?for)\s+(.+)$",
-        r"\b(?:play|watch|open|find)\s+(?:a\s+video\s+(?:called|named)\s+|the\s+video\s+|video\s+)?(.+?)\s+(?:on\s+youtube)\b",
-        r"\bon\s+youtube\s+(?:search\s+for|play|watch|find)\s+(.+)$",
+        r"\b(?:search|look\s+up|find)\s+(?:youtube\s+)?(?:for\s+)?(.+?)\s+(?:on\s+youtube)\b",
+        r"\b(?:search|look\s+up|find)\s+(?:youtube\s+)?for\s+(.+)$",
+        r"\b(?:play|watch|open|find|put\s+on|queue\s+up|pull\s+up|bring\s+up)\s+"
+        r"(?:a\s+video\s+(?:called|named)\s+|the\s+video\s+|video\s+)?(.+?)\s+(?:on\s+youtube)\b",
+        r"\bon\s+youtube\s+(?:search\s+for|look\s+up|play|watch|find|put\s+on|queue\s+up|pull\s+up)\s+(.+)$",
         r"^(.+?)\s+(?:on\s+youtube)\b",
     )
     for pattern in query_patterns:
@@ -1250,7 +1390,7 @@ def _extract_youtube_arguments(goal: str) -> dict[str, Any] | None:
                 "prefer_video_results": True,
             }
 
-    if re.search(r"\b(open|go to|navigate to)\b", lowered_goal):
+    if re.search(r"\b(open|launch|start|go to|navigate to|pull up|bring up)\b", lowered_goal):
         return {"action": "home"}
 
     return {"action": "home"}
@@ -1266,16 +1406,16 @@ def _extract_discord_message_arguments(goal: str) -> dict[str, Any] | None:
         rf"\bsend\s+(?:a\s+)?{discord_name}\s+(?:a\s+)?message\s*"
         r"(?:saying|that\s+says|with|:)?\s*[,;:-]?\s*(.+)$",
         rf"\bopen\s+(?:a\s+)?{discord_name}\s*[,;-]?\s*(?:and\s+)?"
-        r"(?:send|post|paste|type|write)\s+"
+        r"(?:send|post|paste|type|write|reply|say|drop)\s+"
         r"(?:a\s+)?(?:message\s+)?(?:saying|that\s+says|with|:)?\s*[,;:-]?\s*(.+)$",
-        r"\b(?:send|post|paste|type|write)\s+(?:a\s+)?(?:message\s+)?"
+        r"\b(?:send|post|paste|type|write|reply|say|drop)\s+(?:a\s+)?(?:message\s+)?"
         rf"(?:to|in|on)\s+(?:a\s+)?{discord_name}(?:\s+(?:saying|that\s+says|with)|\s*[:,-])?\s+(.+)$",
-        rf"\b{discord_name}(?:,)?\s*(?:and\s+)?(?:send|post|paste|type|write)\s+"
+        rf"\b{discord_name}(?:,)?\s*(?:and\s+)?(?:send|post|paste|type|write|reply|say|drop)\s+"
         r"(?:a\s+)?(?:message\s+)?(?:saying|that\s+says|with|:)?\s*[,;:-]?\s*(.+)$",
         r"\b(?:send|post)\s+(?:this\s+)?(?:message\s+)?"
         rf"(?:to\s+)?(?:the\s+)?(?:active\s+)?(?:a\s+)?{discord_name}\s+"
         r"(?:chat|channel|conversation)?(?:\s*[:,-])?\s+(.+)$",
-        r"\b(?:send|post|paste|type|write)\s+(?:a\s+)?message\s*"
+        r"\b(?:send|post|paste|type|write|reply|drop)\s+(?:a\s+)?message\s*"
         r"(?:saying|that\s+says|with|:)?\s*[,;:-]?\s*(.+)$",
     )
     for pattern in patterns:
@@ -1294,7 +1434,7 @@ def _extract_discord_message_arguments(goal: str) -> dict[str, Any] | None:
         text = _clean_message_text(
             re.sub(
                 r"^\s*[,;:-]?\s*(?:and\s+)?(?:please\s+)?"
-                r"(?:(?:send|post|paste|type|write)\s+)?"
+                r"(?:(?:send|post|paste|type|write|reply|say|drop)\s+)?"
                 r"(?:a\s+)?(?:message\s+)?(?:saying|that\s+says|with)?\s*[,;:-]?\s*",
                 "",
                 parts[1],
@@ -1316,7 +1456,7 @@ def _looks_like_discord_message_goal(lowered_goal: str) -> bool:
         lowered_goal,
     )
     has_send_message_shape = re.search(
-        r"\b(?:send|post|paste|type|write)\s+(?:a\s+)?message\b",
+        r"\b(?:send|post|paste|type|write|reply|drop)\s+(?:a\s+)?message\b",
         lowered_goal,
     )
     return bool(has_discordish_word or has_send_message_shape)
@@ -1359,7 +1499,7 @@ def _clean_course_query(text: str) -> str:
     cleaned = text.strip(" \t\n\r.,;:\"'")
     cleaned = re.sub(r"^(?:my|the|a|an)\s+", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(
-        r"\b(?:please|canvas|navigate|open|go|take|me)\b",
+        r"\b(?:please|canvas|navigate|open|show|bring|pull|load|go|take|me|up)\b",
         " ",
         cleaned,
         flags=re.IGNORECASE,
@@ -1399,7 +1539,7 @@ def _clean_code_request(goal: str) -> str:
         flags=re.IGNORECASE,
     )
     cleaned = re.sub(r"\s+", " ", cleaned)
-    return cleaned.strip(" \t\n\r.,;:\"'")
+    return cleaned.strip(" \t\n\r.,;:?!\"'")
 
 
 def _guess_code_language(goal: str, code: str = "") -> str | None:
@@ -1408,6 +1548,7 @@ def _guess_code_language(goal: str, code: str = "") -> str | None:
         ("typescript", ("typescript", " ts ", ".ts", "tsx")),
         ("javascript", ("javascript", " js ", ".js", "node", "express")),
         ("python", ("python", ".py", "fastapi", "flask", "django", "pytest")),
+        ("swift", ("swift", "swiftui", ".swift", "xcode")),
         ("html", ("html", "<!doctype html", "<html")),
         ("css", ("css", "stylesheet")),
         ("react", ("react", "jsx", "tsx")),
@@ -1416,6 +1557,11 @@ def _guess_code_language(goal: str, code: str = "") -> str | None:
         ("java", ("java", ".java")),
         ("go", ("golang", " go ")),
         ("rust", ("rust", ".rs")),
+        ("kotlin", ("kotlin", ".kt")),
+        ("ruby", ("ruby", ".rb", "rails")),
+        ("lua", ("lua", ".lua")),
+        ("bash", ("bash", "shell script", ".sh")),
+        ("powershell", ("powershell", ".ps1")),
         ("sql", ("sql", "database query")),
     )
     padded = f" {combined} "

@@ -251,6 +251,8 @@ class CoordinatorAccessibilityTests(unittest.TestCase):
         self.assertTrue(is_screen_narration_goal("Describe my active window."))
         self.assertTrue(is_screen_narration_goal("What app am I using?"))
         self.assertTrue(is_screen_narration_goal("Read the active window."))
+        self.assertTrue(is_screen_narration_goal("Help me see the current page."))
+        self.assertTrue(is_screen_narration_goal("Where am I?"))
         self.assertTrue(is_recent_activity_question("What did you just do?"))
         self.assertTrue(is_recent_activity_question("What did the AI just do?"))
         self.assertTrue(is_recent_activity_question("Explain what NemotronOS just did."))
