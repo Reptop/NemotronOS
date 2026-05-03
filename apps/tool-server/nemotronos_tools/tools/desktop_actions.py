@@ -7,7 +7,7 @@ from .desktop_base import DesktopBackend
 
 
 SITE_ALIASES = {
-    "canvas": "https://canvas.instructure.com",
+    "canvas": "https://canvas.oregonstate.edu/",
     "youtube": "https://www.youtube.com",
     "google": "https://www.google.com",
     "gmail": "https://mail.google.com",
