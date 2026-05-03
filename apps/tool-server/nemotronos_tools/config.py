@@ -15,6 +15,12 @@ class ToolServerSettings:
     tool_mode: str
     fake_windows_root: Path
     default_downloads_path: str
+    browser_automation_enabled: bool
+    browser_chrome_executable: str
+    browser_user_data_dir: str
+    browser_profile_dir: str
+    browser_headless: bool
+    browser_default_timeout_ms: int
     canvas_base_url: str
     canvas_api_token: str
     canvas_course_aliases: dict[str, str]
@@ -39,11 +45,24 @@ def get_settings() -> ToolServerSettings:
             "DEFAULT_DOWNLOADS_PATH",
             r"C:\Users\Raed\Downloads",
         ),
+        browser_automation_enabled=_env_bool("BROWSER_AUTOMATION_ENABLED", False),
+        browser_chrome_executable=os.getenv("BROWSER_CHROME_EXECUTABLE", "").strip(),
+        browser_user_data_dir=os.getenv("BROWSER_USER_DATA_DIR", "").strip(),
+        browser_profile_dir=os.getenv("BROWSER_PROFILE_DIR", "Default").strip() or "Default",
+        browser_headless=_env_bool("BROWSER_HEADLESS", False),
+        browser_default_timeout_ms=int(os.getenv("BROWSER_DEFAULT_TIMEOUT_MS", "10000")),
         canvas_base_url=os.getenv("CANVAS_BASE_URL", "https://canvas.oregonstate.edu"),
         canvas_api_token=os.getenv("CANVAS_API_TOKEN", ""),
         canvas_course_aliases=_canvas_course_aliases(),
         vscode_command=os.getenv("VSCODE_COMMAND", "code"),
     )
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _canvas_course_aliases() -> dict[str, str]:

@@ -9,6 +9,7 @@ from pathlib import Path
 class AgentServerSettings:
     app_env: str
     model_mode: str
+    model_provider: str
     model_base_url: str
     model_name: str
     model_api_key: str
@@ -25,13 +26,15 @@ class AgentServerSettings:
 def get_settings() -> AgentServerSettings:
     env_file = Path(os.getenv("NEMOTRONOS_ENV_FILE", ".env"))
     _load_env_file(env_file)
+    model_provider = os.getenv("MODEL_PROVIDER", "nim").strip().lower() or "nim"
 
     return AgentServerSettings(
         app_env=os.getenv("APP_ENV", "mac_dev"),
         model_mode=os.getenv("MODEL_MODE", "mock"),
-        model_base_url=os.getenv("MODEL_BASE_URL", "http://localhost:8000/v1"),
-        model_name=os.getenv("MODEL_NAME", "mock"),
-        model_api_key=os.getenv("MODEL_API_KEY", "local-dev-key"),
+        model_provider=model_provider,
+        model_base_url=os.getenv("MODEL_BASE_URL", _default_model_base_url(model_provider)),
+        model_name=os.getenv("MODEL_NAME", _default_model_name(model_provider)),
+        model_api_key=os.getenv("MODEL_API_KEY", _default_model_api_key(model_provider)),
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
         transcription_model=os.getenv("TRANSCRIPTION_MODEL", "whisper-1"),
         openai_base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
@@ -44,6 +47,24 @@ def get_settings() -> AgentServerSettings:
         request_timeout_seconds=float(os.getenv("REQUEST_TIMEOUT_SECONDS", "15")),
         model_code_max_tokens=int(os.getenv("MODEL_CODE_MAX_TOKENS", "2048")),
     )
+
+
+def _default_model_base_url(model_provider: str) -> str:
+    if model_provider == "ollama":
+        return "http://localhost:11434"
+    return "http://localhost:8000/v1"
+
+
+def _default_model_name(model_provider: str) -> str:
+    if model_provider == "ollama":
+        return "nemotron-3-nano:4b"
+    return "mock"
+
+
+def _default_model_api_key(model_provider: str) -> str:
+    if model_provider == "ollama":
+        return "ollama"
+    return "local-dev-key"
 
 
 def _load_env_file(env_file: Path) -> None:

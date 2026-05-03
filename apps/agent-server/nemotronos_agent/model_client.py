@@ -37,6 +37,7 @@ class ModelClient(ABC):
         tool_definitions: list[dict[str, Any]],
         previous_tool_name: str,
         previous_result: dict[str, Any],
+        recent_tool_calls: list[dict[str, Any]] | None = None,
     ) -> PlannedToolCall:
         raise NotImplementedError
 
@@ -120,8 +121,9 @@ class MockModelClient(ModelClient):
         tool_definitions: list[dict[str, Any]],
         previous_tool_name: str,
         previous_result: dict[str, Any],
+        recent_tool_calls: list[dict[str, Any]] | None = None,
     ) -> PlannedToolCall:
-        del tool_definitions, previous_result
+        del tool_definitions, previous_result, recent_tool_calls
         if previous_tool_name == "app_launch":
             return PlannedToolCall(
                 name="keyboard_type",
@@ -209,6 +211,7 @@ class OpenAICompatibleModelClient(ModelClient):
         tool_definitions: list[dict[str, Any]],
         previous_tool_name: str,
         previous_result: dict[str, Any],
+        recent_tool_calls: list[dict[str, Any]] | None = None,
     ) -> PlannedToolCall:
         if previous_tool_name == "app_launch":
             tool_definitions = [
@@ -230,7 +233,10 @@ class OpenAICompatibleModelClient(ModelClient):
                         "Pick exactly one next tool call from the provided tool list. "
                         "When calling keyboard_type, the text argument must contain only "
                         "the literal text the user wants entered into the active app. "
-                        "Do not include command words, app names, or instruction wording."
+                        "Do not include command words, app names, or instruction wording. "
+                        "For managed browser automation, reason over the latest browser page "
+                        "state, use the provided browser target ids instead of inventing selectors, "
+                        "and call notify_user when the browser task is complete."
                     ),
                 },
                 {
@@ -244,15 +250,29 @@ class OpenAICompatibleModelClient(ModelClient):
                         f"Previous result: {json.dumps(previous_result)}"
                     ),
                 },
+                *(
+                    [
+                        {
+                            "role": "assistant",
+                            "content": f"Recent tool history: {json.dumps(recent_tool_calls)}",
+                        }
+                    ]
+                    if recent_tool_calls
+                    else []
+                ),
             ],
             "tools": [
                 {"type": "function", "function": definition}
                 for definition in tool_definitions
             ],
-            "tool_choice": {
-                "type": "function",
-                "function": {"name": "keyboard_type"},
-            },
+            "tool_choice": (
+                {
+                    "type": "function",
+                    "function": {"name": "keyboard_type"},
+                }
+                if previous_tool_name == "app_launch"
+                else "auto"
+            ),
             "max_tokens": 256,
         }
         return await self._request_tool_call(payload, tool_definitions)
@@ -304,6 +324,10 @@ class OpenAICompatibleModelClient(ModelClient):
             "If the user asks to type in Notepad, call app_launch with app_name='notepad'; "
             "the coordinator will type the requested text afterward. "
             "If the user asks for a website/domain/URL, call browser_open. "
+            "If the user asks for a general browser task that requires reading or interacting "
+            "with page content over multiple steps, prefer the managed browser automation tools: "
+            "browser_session_ensure, browser_navigate, browser_snapshot, browser_click, "
+            "browser_type, browser_select_option, and browser_press. "
             "If the user asks for Canvas course navigation, call canvas_open_course with "
             "the natural course name in course_query. "
             "If the user asks for YouTube content, call youtube_open. Use action='random' "
@@ -338,6 +362,9 @@ class OpenAICompatibleModelClient(ModelClient):
             '{"name":"tool_name","arguments":{},"rationale":"short reason"}. '
             f"Allowed tools: {tool_names}.{forced_tool} "
             "Interpret short or noisy voice transcripts naturally. "
+            "For generic web tasks that require reading or interacting with live page content, "
+            "prefer browser_session_ensure, browser_navigate, browser_snapshot, browser_click, "
+            "browser_type, browser_select_option, and browser_press. "
             "For YouTube searches, use youtube_open with action='search', query, "
             "and prefer_video_results=true. "
             "For random YouTube video requests, use youtube_open with action='random'. "
@@ -355,8 +382,10 @@ class OpenAICompatibleModelClient(ModelClient):
         payload: dict[str, Any],
         tool_definitions: list[dict[str, Any]],
     ) -> PlannedToolCall:
-        headers = {"Authorization": f"Bearer {self.settings.model_api_key}"}
-        url = f"{self.settings.model_base_url.rstrip('/')}/chat/completions"
+        headers = {}
+        if self.settings.model_api_key:
+            headers["Authorization"] = f"Bearer {self.settings.model_api_key}"
+        url = self._chat_completions_url()
         async with httpx.AsyncClient(timeout=self.settings.request_timeout_seconds) as client:
             response = await client.post(url, headers=headers, json=payload)
             response.raise_for_status()
@@ -379,14 +408,22 @@ class OpenAICompatibleModelClient(ModelClient):
             rationale=message.get("content"),
         )
 
+    def _chat_completions_url(self) -> str:
+        base_url = self.settings.model_base_url.rstrip("/")
+        if self.settings.model_provider == "ollama" and not base_url.endswith("/v1"):
+            base_url = f"{base_url}/v1"
+        return f"{base_url}/chat/completions"
+
     async def _request_json_tool_call(
         self,
         goal: str,
         tool_definitions: list[dict[str, Any]],
         force_downloads_plan: bool,
     ) -> PlannedToolCall:
-        headers = {"Authorization": f"Bearer {self.settings.model_api_key}"}
-        url = f"{self.settings.model_base_url.rstrip('/')}/chat/completions"
+        headers = {}
+        if self.settings.model_api_key:
+            headers["Authorization"] = f"Bearer {self.settings.model_api_key}"
+        url = self._chat_completions_url()
         payload = {
             "model": self.settings.model_name,
             "messages": [
@@ -661,6 +698,22 @@ def _extract_browser_target(goal: str) -> str | None:
         if re.search(rf"\b{re.escape(alias)}\b", lowered_goal):
             return alias
 
+    return None
+
+
+def _extract_browser_agent_start_url(goal: str) -> str | None:
+    lowered_goal = goal.lower()
+    if "youtube" in lowered_goal or "canvas" in lowered_goal or "discord" in lowered_goal:
+        return None
+    if "browser" not in lowered_goal and not re.search(r"\b(open|search|click|type|fill|tell me|read)\b", lowered_goal):
+        return None
+
+    direct_target = _extract_direct_web_target(goal)
+    if direct_target:
+        return direct_target
+    alias_target = _extract_direct_site_alias(goal)
+    if alias_target:
+        return alias_target
     return None
 
 

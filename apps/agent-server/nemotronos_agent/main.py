@@ -364,7 +364,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         if payload.approved:
-            background_tasks.add_task(current_coordinator.apply_approved_plan, task_id)
+            background_tasks.add_task(current_coordinator.run_approved_action, task_id)
 
         latest_task = current_task_store.get_task(updated_task.id)
         if not latest_task:

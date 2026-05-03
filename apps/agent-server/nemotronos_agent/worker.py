@@ -37,6 +37,11 @@ class AgentWorker:
                 response.raise_for_status()
         except httpx.HTTPError as exc:
             error_text = str(exc)
+            response = getattr(exc, "response", None)
+            if response is not None:
+                detail = response.text.strip()
+                if detail:
+                    error_text = f"{error_text} | response body: {detail}"
             self.task_store.append_tool_call(
                 task_id,
             ToolCallRecord(

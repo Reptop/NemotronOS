@@ -11,6 +11,7 @@ nemotronos_tools/path_mapper.py
 nemotronos_tools/plan_store.py
 nemotronos_tools/registry.py
 nemotronos_tools/tools/__init__.py
+nemotronos_tools/tools/desktop_actions.py
 nemotronos_tools/tools/desktop_base.py
 nemotronos_tools/tools/desktop_mock_windows.py
 nemotronos_tools/tools/desktop_windows.py
@@ -18,3 +19,5 @@ nemotronos_tools/tools/filesystem.py
 nemotronos_tools/tools/notify.py
 nemotronos_tools/tools/screen.py
 nemotronos_tools/tools/shell.py
+tests/test_desktop_actions.py
+tests/test_screen_capture.py

@@ -30,7 +30,9 @@ class _ModelClient:
         tool_definitions: list[dict[str, Any]],
         previous_tool_name: str,
         previous_result: dict[str, Any],
+        recent_tool_calls: list[dict[str, Any]] | None = None,
     ) -> PlannedToolCall:
+        del goal, tool_definitions, previous_tool_name, previous_result, recent_tool_calls
         raise AssertionError("YouTube follow-up should not call plan_next_action.")
 
 

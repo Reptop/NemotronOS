@@ -29,7 +29,14 @@ class PolicyDecision(BaseModel):
 
 class PolicyEngine:
     def classify(self, tool_name: str, arguments: dict[str, Any]) -> PolicyDecision:
-        if tool_name in {"screen_capture", "fs_plan_changes", "notify_user"}:
+        if tool_name in {
+            "screen_capture",
+            "fs_plan_changes",
+            "notify_user",
+            "browser_session_ensure",
+            "browser_navigate",
+            "browser_snapshot",
+        }:
             return PolicyDecision(
                 tool_name=tool_name,
                 risk_level="low",
@@ -113,6 +120,14 @@ class PolicyEngine:
                 risk_level="medium",
                 allowed=True,
                 reason="Mouse clicks change desktop/browser state and are limited to demo interactions.",
+            )
+
+        if tool_name in {"browser_click", "browser_select_option", "browser_press"}:
+            return PolicyDecision(
+                tool_name=tool_name,
+                risk_level="medium",
+                allowed=True,
+                reason="Managed browser mutations change page state and require approval.",
             )
 
         if tool_name in {"browser_open", "youtube_open", "canvas_open_course"}:

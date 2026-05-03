@@ -14,6 +14,7 @@ class AgentWorkerTests(unittest.TestCase):
             settings=AgentServerSettings(
                 app_env="test",
                 model_mode="mock",
+                model_provider="nim",
                 model_base_url="http://127.0.0.1:8000/v1",
                 model_name="mock",
                 model_api_key="local-dev-key",

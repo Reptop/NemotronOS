@@ -42,6 +42,7 @@ class ApprovalRequest(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
     risk_level: str
     reason: str
+    continue_after_approval: bool = False
     requested_at: str = Field(default_factory=utc_now)
 
 
@@ -56,6 +57,7 @@ class TaskRecord(BaseModel):
     plan_preview: list[dict[str, Any]] = Field(default_factory=list)
     tool_calls: list[ToolCallRecord] = Field(default_factory=list)
     pending_approval: ApprovalRequest | None = None
+    approved_action: ApprovalRequest | None = None
     result: dict[str, Any] | None = None
     error: str | None = None
     memory: dict[str, Any] = Field(default_factory=dict)

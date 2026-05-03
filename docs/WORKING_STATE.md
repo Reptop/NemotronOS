@@ -11,6 +11,7 @@ Purpose: current operational snapshot for any teammate or AI agent joining mid-h
 - The stack is split into a FastAPI agent server, a FastAPI tool server, and a React dashboard.
 - On 2026-05-02, the stack was validated on Windows with `TOOL_MODE=mock_windows` and `MODEL_MODE=mock`.
 - On 2026-05-02, local NVIDIA NIM was validated from Windows at `http://127.0.0.1:8000/v1` with `nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1`.
+- The agent server now supports `MODEL_PROVIDER=nim|ollama` while keeping the same `MODEL_MODE=openai_compatible` path, so teammates can keep the NIM setup while lighter local Ollama tests target `nemotron-3-nano:4b`.
 - The current live desktop demo path is the Windows Notepad typing flow, and the Windows backend now has a first screenshot capture path for desktop-state inspection.
 
 ## What Works Now
@@ -22,10 +23,14 @@ Purpose: current operational snapshot for any teammate or AI agent joining mid-h
 - Approved plans can be applied and generate an undo log.
 - The dashboard can submit tasks, poll health/tasks/events, show the plan preview, and send approval.
 - The agent model layer works with `MODEL_MODE=openai_compatible` against the local 4B NIM endpoint for the Downloads demo. The client forces `fs_plan_changes` for the known Downloads organizer prompt and normalizes the root path to `DEFAULT_DOWNLOADS_PATH`.
+- `MODEL_PROVIDER=ollama` now defaults the same OpenAI-compatible client to `http://localhost:11434` with model `nemotron-3-nano:4b`, while `MODEL_PROVIDER=nim` preserves the prior NIM-oriented defaults and overrides.
 - The dashboard has a reset control wired through `POST /demo/reset-downloads` to restore the fake Downloads fixture for repeatable demos.
+- `scripts/run_local_stack.py` can bootstrap the local Python/dashboard dependencies and start the tool server, agent server, and dashboard from one terminal, skipping only `.env` creation.
+- `scripts/run_windows_tool_server.py` can launch the tool server in a separate interactive Windows PowerShell window, and `scripts/run_wsl_agent_dashboard.py` can run the agent server plus dashboard in WSL, matching the current mixed-environment desktop demo setup.
 - In `TOOL_MODE=windows`, the desktop backend can launch allowlisted apps, create a fresh temp file for Notepad, focus the launched window when Windows allows it, and paste text through `keyboard_type`.
 - In `TOOL_MODE=windows`, `screen_capture` uses Pillow/ImageGrab to save a PNG screenshot under the local temp `NemotronOS/screenshots` directory and returns the saved file path plus dimensions.
-- The coordinator auto-follows known Notepad typing goals with `keyboard_type` after `app_launch`, and voice dictation text can override the model's shorter typed-text argument.
+- In `TOOL_MODE=windows`, the tool server now also has a separate managed browser automation path backed by Playwright and a persistent Chrome profile. The new generic tools are `browser_session_ensure`, `browser_navigate`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_select_option`, and `browser_press`.
+- The coordinator auto-follows known Notepad typing goals with `keyboard_type` after `app_launch`. It now prefers locally extracted quoted/trailing text from the user goal, then falls back to stored voice dictation text, and only asks the model for a second planning step when the literal text is still unclear.
 - The dashboard has a browser microphone path wired through `POST /voice/tasks`. The agent server transcribes with OpenAI's audio transcription API when `OPENAI_API_KEY` is configured, then submits the transcript as a normal task.
 - The dashboard supports a browser-scoped voice hotkey: `Ctrl+Shift+Space` toggles recording while the dashboard tab is active.
 - The dashboard supports browser-scoped wake words while enabled: utterances beginning with "Jarvis" or "Computer" are stripped of the wake word and submitted through `POST /voice/text-tasks`. Chrome/Edge use browser speech recognition; Firefox falls back to short MediaRecorder chunks sent to `POST /voice/wake-detect` for Whisper-based detection.
@@ -34,7 +39,9 @@ Purpose: current operational snapshot for any teammate or AI agent joining mid-h
 - Voice acknowledgements are outcome-aware: wake-only utterances say the short `VOICE_AGENT_LISTENING_ACK` value, currently "uh huh", before recording the follow-up command; successful tasks stay quiet after the neutral command-submitted acknowledgement, unsupported fallback tasks that complete through `notify_user` say "I don't know how to do that yet", approval-gated tasks ask for approval, and failed/cancelled/blocked tasks report failure.
 - Voice transcripts are stored on task memory. Explicit verbatim markers such as "word for word" preserve the post-marker text as a memory override. Voice dictation commands also store the text after generic type/write/enter/paste wording so a too-short model `keyboard_type` argument cannot truncate longer notes.
 - In `MODEL_MODE=openai_compatible`, first-action routing is now model-first for normal desktop, browser, YouTube, Canvas, and Discord voice commands. The old regex extractors remain as fallback when the local model request fails or returns no usable tool call, but they are no longer the primary path. The system prompt asks Nemotron to interpret short/noisy voice transcripts against the registered tool list and emit exactly one tool call.
+- Generic browser tasks now have a bounded multi-step agent loop. The coordinator can continue up to eight browser-agent tool calls, feeding the latest browser page state back into model planning after each read-only action. The terminal condition is still a `notify_user` call.
 - Browser navigation is implemented as a real `browser_open` tool. It opens the default Windows browser to an http(s) URL, domain, search query, or known shortcut such as `canvas`, currently mapped to Oregon State Canvas. Canvas course navigation has a first `canvas_open_course` tool: it resolves configured course aliases such as `CANVAS_INTRO_TO_AI_URL`, can optionally use `CANVAS_API_TOKEN` with Canvas `/api/v1/courses` to fuzzy-match active courses, and otherwise falls back to opening the Canvas courses page.
+- Browser-agent approvals are now generic rather than filesystem-only. `browser_session_ensure`, `browser_navigate`, and `browser_snapshot` are low risk. `browser_click`, `browser_type`, `browser_select_option`, and `browser_press` are medium risk and resume the browser agent loop automatically after approval.
 - YouTube has a first site-specific interaction path. `youtube_open` can open YouTube home, exact YouTube video URLs/IDs, or a search for a spoken video title. Voice-noisy fragments that only preserve `<query> on YouTube`, such as `Zajef77 on YouTube`, are treated as YouTube searches and now request YouTube's video-results filter before clicking so direct channel-name searches do not land on the channel card. For search/random-video requests, the coordinator auto-follows with `youtube_click_video`, which first focuses a window titled like YouTube, captures the screen, finds likely visible YouTube thumbnail rectangles, and clicks the first playable video result below any channel/header card. It falls back to foreground-window ratio clicks if screenshot detection fails.
 - Discord has a first low-navigation messaging path. Discord voice routing is intentionally forgiving for the hackathon: if a transcript contains Discord-like words such as `discord`, `chord`, or `cord`, or has a generic `send a message saying ...` shape, the agent treats it as a Discord message command. `discord_send_message` focuses or opens Discord, presses Escape once to clear common overlays/search focus, pastes the requested text into whatever Discord conversation is currently active, and presses Enter. It intentionally does not select servers, channels, or recipients.
 - Code generation has a first VS Code demo path. If the model routes a coding request to `vscode_paste_code`, the coordinator asks the model for code with a dedicated code-generation prompt, stores the generated code in task memory, redacts the code from normal tool event arguments, and calls the tool server to open a fresh VS Code window and insert the generated code. The Windows backend uses `VSCODE_COMMAND` (default `code`) and first tries VS Code CLI stdin before falling back to focusing VS Code and clipboard-pasting. The tool does not save or execute the generated code. This was validated end to end on 2026-05-03 with local NIM and `VSCODE_COMMAND` pointing at the user's VS Code `code.cmd`.
@@ -53,9 +60,9 @@ Purpose: current operational snapshot for any teammate or AI agent joining mid-h
 
 ## Highest-Priority Next Tasks
 
-1. Live-test model-first routing on the Windows NIM path with the current voice/browser commands and tune the system prompt only where needed.
+1. Live-test the new managed browser automation path on Windows with a dedicated Chrome profile and tune the model prompts/target extraction based on real Gmail, GitHub, and Google flows.
 2. Verify `screen_capture` from a signed-in interactive Windows session and decide whether the next agent step should consume the saved file path directly or attach richer image metadata.
-3. Improve YouTube card selection from local image heuristics to a controlled browser/DOM or model-vision path that can read titles and choose among actual visible video cards before clicking.
+3. Decide whether the next browser iteration should add site-specific helpers on top of the generic browser tools or keep investing in generic DOM snapshots plus model routing.
 4. Add a second local wake model for "Computer" or choose a wake engine with an off-the-shelf "Computer" keyword so both preferred wake words are local.
 
 ## Windows Handoff Notes
@@ -64,6 +71,7 @@ Purpose: current operational snapshot for any teammate or AI agent joining mid-h
 - The real user path for the demo is modeled by `DEFAULT_DOWNLOADS_PATH`, currently `C:\Users\Raed\Downloads`.
 - `TOOL_MODE=mock_windows` is the safe current dev path.
 - Switching to real Windows behavior will require replacing or extending the scaffolded desktop/tool backends, not just changing docs or prompts.
+- Managed browser automation also requires a Windows interactive tool server plus a dedicated persistent Chrome profile that is not locked by another Chrome instance.
 - Check Python 3.11+ and Node/Vite startup on Windows before promising demo readiness.
 - In the Codex sandbox on Windows, the user-level `python` and `py` shims were not usable; the bundled Python runtime plus repo-local `.deps/python` worked after allowing pip network access.
 - For local NIM on the RTX 4090, the 8B NIM and 4B TensorRT buildable BF16 profile were killed during startup. The working path was the 4B NIM `vllm-bf16-tp1-pp1` profile with reduced context (`NIM_MAX_MODEL_LEN=4096`).
@@ -76,6 +84,9 @@ Purpose: current operational snapshot for any teammate or AI agent joining mid-h
 - The repo includes committed `__pycache__`, `dist`, and `*.egg-info` artifacts. They should not be treated as the canonical implementation.
 - Model-first routing can still be brittle with the local 4B model. Keep fallback parsers conservative and prefer prompt/tool-schema improvements over adding new command-specific regexes.
 - Local NIM may return a tool call with non-demo-safe paths. The current OpenAI-compatible client intentionally normalizes the known Downloads demo arguments before tool execution.
+- Ollama provider support is wired through Ollama's OpenAI-compatible endpoint, but this repo snapshot has only code-level and unit-test validation for that path so far, not a recorded Windows live run yet.
+- Earlier tool-call failures could lose useful detail when the underlying exception had an empty string form; the agent now records a fallback exception type string and includes tool-server response bodies on HTTP failures.
+- The generic browser-agent path currently assumes a single managed Chrome page per session and does not try to coordinate multiple tabs, uploads/downloads, CAPTCHA, or MFA.
 
 ## Update Protocol
 

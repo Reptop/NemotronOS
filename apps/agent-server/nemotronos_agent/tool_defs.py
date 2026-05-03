@@ -140,6 +140,86 @@ def tool_definitions() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "browser_session_ensure",
+            "description": (
+                "Ensure the managed Chrome browser automation session exists and return a "
+                "structured snapshot of the current page. Optionally start at a URL."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"start_url": {"type": "string"}},
+            },
+        },
+        {
+            "name": "browser_navigate",
+            "description": (
+                "Navigate the managed Chrome browser automation page to an http(s) URL or domain "
+                "and return a structured page snapshot."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"url": {"type": "string"}},
+                "required": ["url"],
+            },
+        },
+        {
+            "name": "browser_snapshot",
+            "description": (
+                "Return a structured snapshot of the current managed browser page, including "
+                "visible text and actionable target ids."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "max_text_chars": {"type": "integer"},
+                    "max_targets": {"type": "integer"},
+                },
+            },
+        },
+        {
+            "name": "browser_click",
+            "description": "Click an actionable browser target from the latest page snapshot.",
+            "parameters": {
+                "type": "object",
+                "properties": {"target_id": {"type": "string"}},
+                "required": ["target_id"],
+            },
+        },
+        {
+            "name": "browser_type",
+            "description": "Type text into a browser input target from the latest page snapshot.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target_id": {"type": "string"},
+                    "text": {"type": "string"},
+                    "clear_first": {"type": "boolean"},
+                },
+                "required": ["target_id", "text"],
+            },
+        },
+        {
+            "name": "browser_select_option",
+            "description": "Select an option in a browser select target from the latest page snapshot.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target_id": {"type": "string"},
+                    "value_or_label": {"type": "string"},
+                },
+                "required": ["target_id", "value_or_label"],
+            },
+        },
+        {
+            "name": "browser_press",
+            "description": "Press a keyboard key in the managed browser page.",
+            "parameters": {
+                "type": "object",
+                "properties": {"key": {"type": "string"}},
+                "required": ["key"],
+            },
+        },
+        {
             "name": "youtube_open",
             "description": (
                 "Open YouTube home, search YouTube for a requested video/title, "
