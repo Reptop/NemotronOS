@@ -18,6 +18,7 @@ class ToolServerSettings:
     canvas_base_url: str
     canvas_api_token: str
     canvas_course_aliases: dict[str, str]
+    vscode_command: str
 
 
 def _resolve_fake_windows_root(raw_value: str) -> Path:
@@ -41,6 +42,7 @@ def get_settings() -> ToolServerSettings:
         canvas_base_url=os.getenv("CANVAS_BASE_URL", "https://canvas.oregonstate.edu"),
         canvas_api_token=os.getenv("CANVAS_API_TOKEN", ""),
         canvas_course_aliases=_canvas_course_aliases(),
+        vscode_command=os.getenv("VSCODE_COMMAND", "code"),
     )
 
 

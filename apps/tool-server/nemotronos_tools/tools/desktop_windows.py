@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import shutil
 import subprocess
 import tempfile
 import time
@@ -248,6 +249,37 @@ class WindowsDesktopBackend(DesktopBackend):
             "typed_at": datetime.now(timezone.utc).isoformat(),
         }
 
+    def open_code_editor(
+        self,
+        code: str,
+        language: str,
+        open_new_window: bool,
+        command: str,
+    ) -> dict[str, Any]:
+        self._ensure_windows_runtime()
+        if not code.strip():
+            raise ValueError("vscode_paste_code requires non-empty code.")
+
+        command_path = self._resolve_vscode_command(command)
+        try:
+            return self._open_vscode_with_stdin(
+                command_path=command_path,
+                code=code,
+                language=language,
+                open_new_window=open_new_window,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            fallback_result = self._open_vscode_and_paste(
+                command_path=command_path,
+                code=code,
+                language=language,
+                open_new_window=open_new_window,
+            )
+            return {
+                **fallback_result,
+                "fallback_reason": str(exc),
+            }
+
     def press_enter(self) -> dict[str, Any]:
         self._ensure_windows_runtime()
         self._send_hotkey([VK_RETURN])
@@ -350,6 +382,127 @@ class WindowsDesktopBackend(DesktopBackend):
         document_path = document_dir / f"nemotronos-note-{uuid4().hex[:8]}.txt"
         document_path.write_text("", encoding="utf-8")
         return document_path
+
+    def _resolve_vscode_command(self, command: str) -> str:
+        cleaned_command = command.strip()
+        if not cleaned_command:
+            raise ValueError("VSCODE_COMMAND is empty.")
+
+        command_path = Path(cleaned_command)
+        if command_path.is_absolute():
+            if not command_path.exists():
+                raise FileNotFoundError(
+                    f"VS Code command does not exist: {cleaned_command}"
+                )
+            return str(command_path)
+
+        resolved_command = shutil.which(cleaned_command)
+        if resolved_command:
+            return resolved_command
+        raise FileNotFoundError(
+            f"VS Code command not found: {cleaned_command}. "
+            "Install the VS Code shell command or set VSCODE_COMMAND."
+        )
+
+    def _open_vscode_with_stdin(
+        self,
+        command_path: str,
+        code: str,
+        language: str,
+        open_new_window: bool,
+    ) -> dict[str, Any]:
+        launch_args = [command_path]
+        if open_new_window:
+            launch_args.append("-n")
+        launch_args.append("-")
+
+        process = subprocess.Popen(  # noqa: S603
+            launch_args,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            close_fds=True,
+        )
+        stderr_text = ""
+        timed_out = False
+        try:
+            _, stderr_text = process.communicate(code, timeout=10)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            if process.stdin:
+                try:
+                    process.stdin.close()
+                except OSError:
+                    pass
+
+        if process.returncode not in {0, None}:
+            raise OSError(
+                f"VS Code CLI failed with exit code {process.returncode}: "
+                f"{stderr_text.strip()}"
+            )
+
+        self._last_process_id = process.pid
+        self._last_window_title_hint = "visual studio code"
+        focused = self._focus_window_by_title_with_retry("visual studio code")
+        return {
+            "mode": "windows",
+            "editor": "vscode",
+            "command": command_path,
+            "pid": process.pid,
+            "opened": True,
+            "focused": focused,
+            "open_new_window": open_new_window,
+            "inserted": True,
+            "input_method": "vscode_stdin",
+            "characters": len(code),
+            **({"language": language} if language else {}),
+            **({"cli_timed_out": True} if timed_out else {}),
+            "opened_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def _open_vscode_and_paste(
+        self,
+        command_path: str,
+        code: str,
+        language: str,
+        open_new_window: bool,
+    ) -> dict[str, Any]:
+        launch_args = [command_path]
+        if open_new_window:
+            launch_args.append("-n")
+
+        process = subprocess.Popen(  # noqa: S603
+            launch_args,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
+        self._last_process_id = process.pid
+        self._last_window_title_hint = "visual studio code"
+        time.sleep(2.0)
+        focused = self._focus_process_window(process.pid)
+        if not focused:
+            focused = self._focus_window_by_title_with_retry("visual studio code")
+        if not focused:
+            raise OSError("VS Code opened but NemotronOS could not focus the window.")
+
+        self._paste_text(code)
+        return {
+            "mode": "windows",
+            "editor": "vscode",
+            "command": command_path,
+            "pid": process.pid,
+            "opened": True,
+            "focused": True,
+            "open_new_window": open_new_window,
+            "inserted": True,
+            "input_method": "clipboard_paste",
+            "characters": len(code),
+            **({"language": language} if language else {}),
+            "opened_at": datetime.now(timezone.utc).isoformat(),
+        }
 
     def _focus_window_by_title_with_retry(self, title_hint: str) -> bool:
         for _ in range(8):

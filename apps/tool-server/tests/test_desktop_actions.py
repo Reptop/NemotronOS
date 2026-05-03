@@ -13,6 +13,7 @@ from nemotronos_tools.tools.desktop_actions import (
     normalize_browser_target,
     normalize_youtube_url,
     resolve_canvas_course,
+    vscode_paste_code,
     youtube_search_url,
 )
 from nemotronos_tools.tools.desktop_base import DesktopBackend
@@ -33,6 +34,32 @@ class RecordingDesktopBackend(DesktopBackend):
     def type_text(self, text: str) -> dict:
         self.calls.append(("type_text", text))
         return {"mode": "test", "typed": True, "characters": len(text)}
+
+    def open_code_editor(
+        self,
+        code: str,
+        language: str,
+        open_new_window: bool,
+        command: str,
+    ) -> dict:
+        self.calls.append(
+            (
+                "open_code_editor",
+                {
+                    "code": code,
+                    "language": language,
+                    "open_new_window": open_new_window,
+                    "command": command,
+                },
+            )
+        )
+        return {
+            "mode": "test",
+            "editor": "vscode",
+            "opened": True,
+            "inserted": True,
+            "characters": len(code),
+        }
 
     def press_enter(self) -> dict:
         self.calls.append(("press_enter", None))
@@ -149,6 +176,32 @@ class DesktopActionTests(unittest.TestCase):
                 ("press_escape", None),
                 ("type_text", "hello team"),
                 ("press_enter", None),
+            ],
+        )
+
+    def test_vscode_paste_code_opens_editor_with_generated_code(self) -> None:
+        backend = RecordingDesktopBackend()
+
+        result = vscode_paste_code(
+            {"code": "print('hello')", "language": "python"},
+            backend,
+            "code",
+        )
+
+        self.assertTrue(result["opened"])
+        self.assertEqual(result["characters"], len("print('hello')"))
+        self.assertEqual(
+            backend.calls,
+            [
+                (
+                    "open_code_editor",
+                    {
+                        "code": "print('hello')",
+                        "language": "python",
+                        "open_new_window": True,
+                        "command": "code",
+                    },
+                )
             ],
         )
 

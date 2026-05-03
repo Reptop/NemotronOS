@@ -88,6 +88,25 @@ class PolicyEngine:
                 reason="Typing into the active app changes desktop state and is limited to demo text.",
             )
 
+        if tool_name == "vscode_paste_code":
+            code = str(arguments.get("code", ""))
+            if code and len(code) > 50000:
+                return PolicyDecision(
+                    tool_name=tool_name,
+                    risk_level="medium",
+                    allowed=False,
+                    reason="VS Code paste is limited to 50000 characters in the demo path.",
+                )
+            return PolicyDecision(
+                tool_name=tool_name,
+                risk_level="medium",
+                allowed=True,
+                reason=(
+                    "Opening VS Code and inserting generated code changes local desktop "
+                    "state but does not save files or execute code."
+                ),
+            )
+
         if tool_name in {"mouse_click", "youtube_click_video"}:
             return PolicyDecision(
                 tool_name=tool_name,

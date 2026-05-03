@@ -75,6 +75,25 @@ def keyboard_type(arguments: dict[str, Any], desktop_backend: DesktopBackend) ->
     return desktop_backend.type_text(text)
 
 
+def vscode_paste_code(
+    arguments: dict[str, Any],
+    desktop_backend: DesktopBackend,
+    vscode_command: str,
+) -> dict[str, Any]:
+    code = str(arguments.get("code", ""))
+    if not code.strip():
+        raise ValueError("vscode_paste_code requires code.")
+
+    language = str(arguments.get("language") or "").strip().lower()
+    open_new_window = bool(arguments.get("open_new_window", True))
+    return desktop_backend.open_code_editor(
+        code=code,
+        language=language,
+        open_new_window=open_new_window,
+        command=vscode_command,
+    )
+
+
 def discord_send_message(
     arguments: dict[str, Any],
     desktop_backend: DesktopBackend,

@@ -64,6 +64,24 @@ def tool_definitions() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "vscode_paste_code",
+            "description": (
+                "Generate code for the user's coding request, open a fresh VS Code "
+                "window, and insert the generated code. The router should provide "
+                "the request and optional language, not the generated code; the "
+                "coordinator fills the code argument after code generation."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "request": {"type": "string"},
+                    "language": {"type": "string"},
+                    "open_new_window": {"type": "boolean"},
+                },
+                "required": ["request"],
+            },
+        },
+        {
             "name": "discord_send_message",
             "description": (
                 "Send a message to the currently active Discord conversation. "

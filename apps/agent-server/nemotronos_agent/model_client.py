@@ -18,6 +18,11 @@ class PlannedToolCall(BaseModel):
     rationale: str | None = None
 
 
+class GeneratedCode(BaseModel):
+    code: str
+    language: str | None = None
+
+
 class ModelClient(ABC):
     @abstractmethod
     async def plan_first_action(
@@ -33,6 +38,10 @@ class ModelClient(ABC):
         previous_tool_name: str,
         previous_result: dict[str, Any],
     ) -> PlannedToolCall:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def generate_code(self, goal: str) -> GeneratedCode:
         raise NotImplementedError
 
 
@@ -55,6 +64,14 @@ class MockModelClient(ModelClient):
                     "allowed_operations": ["mkdir", "move"],
                 },
                 rationale="Create a dry-run organization plan for the Downloads folder first.",
+            )
+
+        code_arguments = _extract_code_request_arguments(goal)
+        if code_arguments:
+            return PlannedToolCall(
+                name="vscode_paste_code",
+                arguments=code_arguments,
+                rationale="Generate code and open it in a fresh VS Code window.",
             )
 
         discord_arguments = _extract_discord_message_arguments(goal)
@@ -115,6 +132,20 @@ class MockModelClient(ModelClient):
             name="notify_user",
             arguments={"message": f"Mock mode has no follow-up action for: {goal}"},
             rationale="Fallback response for an unsupported mock follow-up.",
+        )
+
+    async def generate_code(self, goal: str) -> GeneratedCode:
+        language = _guess_code_language(goal) or "python"
+        return GeneratedCode(
+            language=language,
+            code=(
+                "# Mock NemotronOS code generation\n"
+                f"# Request: {goal}\n\n"
+                "def main():\n"
+                '    print("Hello from NemotronOS.")\n\n'
+                'if __name__ == "__main__":\n'
+                "    main()\n"
+            ),
         )
 
 
@@ -226,6 +257,41 @@ class OpenAICompatibleModelClient(ModelClient):
         }
         return await self._request_tool_call(payload, tool_definitions)
 
+    async def generate_code(self, goal: str) -> GeneratedCode:
+        headers = {"Authorization": f"Bearer {self.settings.model_api_key}"}
+        url = f"{self.settings.model_base_url.rstrip('/')}/chat/completions"
+        payload = {
+            "model": self.settings.model_name,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are NemotronOS's local coding agent. Generate the code the "
+                        "user asked for. Return only code, with no markdown fence, no "
+                        "explanation, no preamble, and no trailing commentary. Prefer a "
+                        "single self-contained file when the user does not ask for a "
+                        "multi-file project. Do not claim you saved or ran anything."
+                    ),
+                },
+                {"role": "user", "content": goal},
+            ],
+            "temperature": 0.2,
+            "max_tokens": self.settings.model_code_max_tokens,
+        }
+        async with httpx.AsyncClient(timeout=self.settings.request_timeout_seconds) as client:
+            response = await client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+
+        data = response.json()
+        content = str(data["choices"][0]["message"].get("content") or "")
+        code, fenced_language = self._clean_generated_code(content)
+        if not code.strip():
+            raise RuntimeError("Model returned empty code.")
+        return GeneratedCode(
+            code=code,
+            language=fenced_language or _guess_code_language(goal, code),
+        )
+
     def _first_action_system_prompt(self) -> str:
         return (
             "You are NemotronOS, a private Windows PC agent. "
@@ -246,6 +312,10 @@ class OpenAICompatibleModelClient(ModelClient):
             "only for exact YouTube URLs or IDs. "
             "If the user asks to send/post/type a message to Discord or the active chat, "
             "call discord_send_message with only the message body in text. "
+            "If the user asks you to write, code, build, create, or generate software, "
+            "scripts, functions, components, web pages, or code snippets, call "
+            "vscode_paste_code with request set to the full coding request and optional "
+            "language if obvious. Do not put generated code in the tool arguments. "
             "If no available tool can reasonably help, call notify_user with a brief message."
         )
 
@@ -275,6 +345,8 @@ class OpenAICompatibleModelClient(ModelClient):
             "For Discord messages, use discord_send_message and put only the message body "
             "in text. For Canvas course navigation, use canvas_open_course. "
             "For normal websites/domains/URLs, use browser_open. "
+            "For coding requests, use vscode_paste_code with request set to the full "
+            "coding request and language only when obvious; do not include generated code. "
             f"Tool schemas: {tool_schemas}"
         )
 
@@ -396,6 +468,22 @@ class OpenAICompatibleModelClient(ModelClient):
             raise RuntimeError("JSON planner returned a non-object payload.")
         return parsed
 
+    def _clean_generated_code(self, content: str) -> tuple[str, str | None]:
+        cleaned = content.strip()
+        if "<think>" in cleaned:
+            cleaned = re.sub(r"<think>.*?</think>", "", cleaned, flags=re.DOTALL).strip()
+
+        fenced_match = re.fullmatch(
+            r"```([a-zA-Z0-9_+#.-]+)?\s*\n?(.*?)\s*```",
+            cleaned,
+            flags=re.DOTALL,
+        )
+        if fenced_match:
+            language = (fenced_match.group(1) or "").strip().lower() or None
+            return fenced_match.group(2).strip("\n\r"), language
+
+        return cleaned, None
+
     def _should_force_downloads_plan(self, goal: str) -> bool:
         lowered_goal = goal.lower()
         return "organize" in lowered_goal and "download" in lowered_goal
@@ -461,9 +549,26 @@ class OpenAICompatibleModelClient(ModelClient):
                     "text": text,
                     "open_if_needed": bool(arguments.get("open_if_needed", True)),
                 }
+        if tool_name == "vscode_paste_code":
+            request = str(arguments.get("request") or goal).strip()
+            language = str(arguments.get("language") or _guess_code_language(goal) or "").strip()
+            return {
+                **arguments,
+                "request": request,
+                **({"language": language} if language else {}),
+                "open_new_window": bool(arguments.get("open_new_window", True)),
+            }
         return arguments
 
     def _fallback_first_action(self, goal: str) -> PlannedToolCall:
+        code_arguments = _extract_code_request_arguments(goal)
+        if code_arguments:
+            return PlannedToolCall(
+                name="vscode_paste_code",
+                arguments=code_arguments,
+                rationale="Fallback parser routed a coding request to VS Code.",
+            )
+
         discord_arguments = _extract_discord_message_arguments(goal)
         if discord_arguments:
             return PlannedToolCall(
@@ -618,6 +723,33 @@ def _clean_direct_navigation_fragment(goal: str) -> str:
     )
     cleaned = re.sub(r"^(?:please\s+)?to\s+", "", cleaned, flags=re.IGNORECASE)
     return cleaned.strip(" \t\n\r.,;:\"'")
+
+
+def _extract_code_request_arguments(goal: str) -> dict[str, Any] | None:
+    lowered_goal = goal.lower()
+    has_code_intent = re.search(
+        r"\b(?:code|coding|program|script|function|component|web\s?page|html|css|"
+        r"javascript|typescript|python|react|node|api|game)\b",
+        lowered_goal,
+    )
+    has_creation_verb = re.search(
+        r"\b(?:write|make|build|create|generate|code|implement|program)\b",
+        lowered_goal,
+    )
+    mentions_vscode = re.search(r"\b(?:vs\s*code|vscode|visual\s+studio\s+code)\b", lowered_goal)
+    if not ((has_code_intent and has_creation_verb) or mentions_vscode):
+        return None
+
+    request = _clean_code_request(goal)
+    if not request:
+        return None
+
+    language = _guess_code_language(goal)
+    return {
+        "request": request,
+        **({"language": language} if language else {}),
+        "open_new_window": True,
+    }
 
 
 def _extract_canvas_arguments(goal: str) -> dict[str, Any] | None:
@@ -775,6 +907,56 @@ def _clean_youtube_query(query: str) -> str:
     cleaned = re.sub(r"\s+(?:on\s+youtube|youtube)$", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"^(?:youtube\s+)?", "", cleaned, flags=re.IGNORECASE)
     return cleaned.strip(" \t\n\r.,;:\"'")
+
+
+def _clean_code_request(goal: str) -> str:
+    cleaned = goal.strip(" \t\n\r")
+    cleaned = re.sub(r"^(?:computer|jarvis)\s*[,;:-]?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"\b(?:open|put|paste)\s+(?:it\s+)?(?:in|into)\s+"
+        r"(?:vs\s*code|vscode|visual\s+studio\s+code)\b",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"\b(?:and\s+)?(?:open|show)\s+(?:a\s+)?(?:new\s+)?"
+        r"(?:vs\s*code|vscode|visual\s+studio\s+code)\s+(?:window|instance)?\b",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"\s+(?:in|into|inside)\s+(?:vs\s*code|vscode|visual\s+studio\s+code)\b",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.strip(" \t\n\r.,;:\"'")
+
+
+def _guess_code_language(goal: str, code: str = "") -> str | None:
+    combined = f"{goal}\n{code}".lower()
+    language_markers = (
+        ("typescript", ("typescript", " ts ", ".ts", "tsx")),
+        ("javascript", ("javascript", " js ", ".js", "node", "express")),
+        ("python", ("python", ".py", "fastapi", "flask", "django", "pytest")),
+        ("html", ("html", "<!doctype html", "<html")),
+        ("css", ("css", "stylesheet")),
+        ("react", ("react", "jsx", "tsx")),
+        ("csharp", ("c#", "csharp", ".cs")),
+        ("cpp", ("c++", "cpp", ".cpp")),
+        ("java", ("java", ".java")),
+        ("go", ("golang", " go ")),
+        ("rust", ("rust", ".rs")),
+        ("sql", ("sql", "database query")),
+    )
+    padded = f" {combined} "
+    for language, markers in language_markers:
+        if any(marker in padded for marker in markers):
+            return language
+    return None
 
 
 def _clean_browser_target(target: str) -> str:

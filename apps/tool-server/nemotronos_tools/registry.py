@@ -14,6 +14,7 @@ from .tools.desktop_actions import (
     discord_send_message,
     keyboard_type,
     mouse_click,
+    vscode_paste_code,
     youtube_click_video,
     youtube_open,
 )
@@ -73,6 +74,14 @@ def build_tool_registry(settings: ToolServerSettings) -> ToolRegistry:
     registry.register(
         "keyboard_type",
         lambda arguments: keyboard_type(arguments, desktop_backend),
+    )
+    registry.register(
+        "vscode_paste_code",
+        lambda arguments: vscode_paste_code(
+            arguments,
+            desktop_backend,
+            settings.vscode_command,
+        ),
     )
     registry.register(
         "discord_send_message",

@@ -18,6 +18,16 @@ class DesktopBackend(ABC):
         """Type text into the currently focused desktop application."""
 
     @abstractmethod
+    def open_code_editor(
+        self,
+        code: str,
+        language: str,
+        open_new_window: bool,
+        command: str,
+    ) -> dict[str, Any]:
+        """Open a code editor and insert generated code without saving a user file."""
+
+    @abstractmethod
     def press_enter(self) -> dict[str, Any]:
         """Press Enter in the currently focused desktop application."""
 

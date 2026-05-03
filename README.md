@@ -117,7 +117,7 @@ This is still a scaffold. The current recommended demo path is the refined Whisp
 
 ### Real Windows desktop tool mode
 
-For the first real desktop-control slice, set `TOOL_MODE=windows` and run the tool server from an interactive Windows terminal. The tool server currently allowlists `notepad`, `calculator`/`calc`, `paint`/`mspaint`, and `discord` for `app_launch`, supports `keyboard_type` through clipboard paste, supports Discord message sending to the currently active conversation, supports `browser_open` through the default Windows browser, supports Canvas course opening through configured aliases or an optional Canvas API token, and has screenshot-first mouse clicking for YouTube video selection with a ratio-click fallback.
+For the first real desktop-control slice, set `TOOL_MODE=windows` and run the tool server from an interactive Windows terminal. The tool server currently allowlists `notepad`, `calculator`/`calc`, `paint`/`mspaint`, and `discord` for `app_launch`, supports `keyboard_type` through clipboard paste, supports opening a fresh VS Code window and inserting generated code through `vscode_paste_code`, supports Discord message sending to the currently active conversation, supports `browser_open` through the default Windows browser, supports Canvas course opening through configured aliases or an optional Canvas API token, and has screenshot-first mouse clicking for YouTube video selection with a ratio-click fallback.
 
 First manual test prompt:
 
@@ -147,6 +147,12 @@ Discord test prompt:
 
 This sends to the currently active Discord conversation. It does not select servers or channels, so put Discord on the target chat first.
 
+Code generation test prompt:
+
+`Code me a Python script that prints the Fibonacci sequence.`
+
+This asks the model to generate a single-file code snippet, opens a fresh VS Code window, and inserts the generated code without saving or running it. The tool server uses `VSCODE_COMMAND`, defaulting to `code`, so install the VS Code shell command or set `VSCODE_COMMAND` to the VS Code CLI path if Windows cannot find it.
+
 If the tool server is launched from a hidden or non-interactive service context, Windows may create a process without a focusable desktop window. Run it from the signed-in desktop session for real UI interaction tests.
 
 ## API endpoints
@@ -168,7 +174,7 @@ If the tool server is launched from a hidden or non-interactive service context,
 - `GET /health`
 - `POST /demo/reset-downloads`
 
-Currently registered tool-server tools include `app_launch`, `keyboard_type`, `discord_send_message`, `mouse_click`, `browser_open`, `canvas_open_course`, `youtube_open`, `youtube_click_video`, `fs_plan_changes`, `fs_apply_changes`, `screen_capture`, `shell_run`, and `notify_user`.
+Currently registered tool-server tools include `app_launch`, `keyboard_type`, `vscode_paste_code`, `discord_send_message`, `mouse_click`, `browser_open`, `canvas_open_course`, `youtube_open`, `youtube_click_video`, `fs_plan_changes`, `fs_apply_changes`, `screen_capture`, `shell_run`, and `notify_user`.
 
 ## Notes
 

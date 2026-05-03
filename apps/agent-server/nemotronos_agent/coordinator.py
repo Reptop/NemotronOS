@@ -62,6 +62,16 @@ class AgentCoordinator:
             if not planning_policy.allowed:
                 raise RuntimeError(planning_policy.reason)
 
+            if planned_call.name == "vscode_paste_code":
+                result = await self._generate_and_paste_code(
+                    task_id,
+                    task.goal,
+                    planned_call.arguments,
+                )
+                self.task_store.update_task(task_id, state="completed", result=result)
+                self.event_log.add_event("task_completed", task_id=task_id, result=result)
+                return
+
             result = await self.worker.call_tool(
                 task_id=task_id,
                 name=planned_call.name,
@@ -275,6 +285,51 @@ class AgentCoordinator:
             raise RuntimeError(policy.reason)
 
         return await self.worker.call_tool(task_id, "youtube_click_video", arguments)
+
+    async def _generate_and_paste_code(
+        self,
+        task_id: str,
+        goal: str,
+        planned_arguments: dict[str, Any],
+    ) -> dict[str, Any]:
+        generated = await self.model_client.generate_code(goal)
+        task = self.task_store.get_task(task_id)
+        current_memory = dict(task.memory) if task else {}
+        self.task_store.update_task(
+            task_id,
+            memory={
+                **current_memory,
+                "generated_code": generated.code,
+                "generated_code_language": generated.language,
+            },
+        )
+        self.event_log.add_event(
+            "code_generated",
+            task_id=task_id,
+            language=generated.language,
+            characters=len(generated.code),
+        )
+
+        arguments = {
+            **planned_arguments,
+            "code": generated.code,
+            "code_ref": "task.memory.generated_code",
+            "language": generated.language or planned_arguments.get("language") or "",
+            "open_new_window": bool(planned_arguments.get("open_new_window", True)),
+        }
+        policy = self.policy_engine.classify("vscode_paste_code", arguments)
+        self.event_log.add_event(
+            "policy_checked",
+            task_id=task_id,
+            tool_name="vscode_paste_code",
+            risk_level=policy.risk_level,
+            allowed=policy.allowed,
+            reason=policy.reason,
+        )
+        if not policy.allowed:
+            raise RuntimeError(policy.reason)
+
+        return await self.worker.call_tool(task_id, "vscode_paste_code", arguments)
 
     async def _type_notepad_demo_text(self, task_id: str, goal: str) -> dict[str, Any]:
         task = self.task_store.get_task(task_id)

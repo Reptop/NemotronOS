@@ -37,6 +37,26 @@ class MockWindowsDesktopBackend(DesktopBackend):
             "typed_at": datetime.now(timezone.utc).isoformat(),
         }
 
+    def open_code_editor(
+        self,
+        code: str,
+        language: str,
+        open_new_window: bool,
+        command: str,
+    ) -> dict[str, Any]:
+        return {
+            "mode": "mock_windows",
+            "editor": "vscode",
+            "command": command,
+            "opened": True,
+            "open_new_window": open_new_window,
+            "inserted": True,
+            "input_method": "mock_paste",
+            "characters": len(code),
+            **({"language": language} if language else {}),
+            "opened_at": datetime.now(timezone.utc).isoformat(),
+        }
+
     def press_enter(self) -> dict[str, Any]:
         return {
             "mode": "mock_windows",

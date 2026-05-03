@@ -9,6 +9,7 @@ from nemotronos_agent.model_client import (
     PlannedToolCall,
     _extract_browser_target,
     _extract_canvas_arguments,
+    _extract_code_request_arguments,
     _extract_discord_message_arguments,
     _extract_youtube_arguments,
 )
@@ -291,6 +292,41 @@ class OpenAICompatibleModelClientTests(unittest.TestCase):
             {"text": "hello hackathon team", "open_if_needed": True},
         )
 
+    def test_code_request_routes_to_vscode_tool(self) -> None:
+        client = RecordingModelClient(
+            self.settings,
+            PlannedToolCall(
+                name="vscode_paste_code",
+                arguments={"request": "Code me a Python snake game.", "language": "python"},
+            ),
+        )
+
+        planned_call = asyncio.run(
+            client.plan_first_action("Code me a Python snake game.", [])
+        )
+
+        self.assertEqual(planned_call.name, "vscode_paste_code")
+        self.assertEqual(
+            planned_call.arguments,
+            {
+                "request": "Code me a Python snake game.",
+                "language": "python",
+                "open_new_window": True,
+            },
+        )
+
+    def test_extracts_code_request_arguments(self) -> None:
+        self.assertEqual(
+            _extract_code_request_arguments(
+                "Computer, code me a Python script that prints hello in VS Code."
+            ),
+            {
+                "request": "code me a Python script that prints hello",
+                "language": "python",
+                "open_new_window": True,
+            },
+        )
+
     def test_noisy_discord_message_routes_to_discord_tool(self) -> None:
         client = RecordingModelClient(
             self.settings,
@@ -323,6 +359,7 @@ class OpenAICompatibleModelClientTests(unittest.TestCase):
         self.assertIn("noisy voice transcripts", system_prompt)
         self.assertIn("youtube_open", system_prompt)
         self.assertIn("discord_send_message", system_prompt)
+        self.assertIn("vscode_paste_code", system_prompt)
 
     def test_falls_back_when_model_planning_fails(self) -> None:
         client = RecordingModelClient(
