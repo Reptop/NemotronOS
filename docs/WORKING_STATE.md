@@ -10,7 +10,8 @@ Purpose: current operational snapshot for any teammate or AI agent joining mid-h
 - The main demo is: organize Downloads by file type, show the plan first, require approval, then apply changes.
 - The stack is split into a FastAPI agent server, a FastAPI tool server, and a React dashboard.
 - On 2026-05-02, the stack was validated on Windows with `TOOL_MODE=mock_windows` and `MODEL_MODE=mock`.
-- On 2026-05-03, local NVIDIA NIM was validated from Windows at `http://127.0.0.1:8000/v1` with `nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1`.
+- On 2026-05-02, local NVIDIA NIM was validated from Windows at `http://127.0.0.1:8000/v1` with `nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1`.
+- The current live desktop demo path is the Windows Notepad typing flow; screenshot capture is the most obvious missing capability on that surface.
 
 ## What Works Now
 
@@ -22,6 +23,8 @@ Purpose: current operational snapshot for any teammate or AI agent joining mid-h
 - The dashboard can submit tasks, poll health/tasks/events, show the plan preview, and send approval.
 - The agent model layer works with `MODEL_MODE=openai_compatible` against the local 4B NIM endpoint for the Downloads demo. The client forces `fs_plan_changes` for the known Downloads organizer prompt and normalizes the root path to `DEFAULT_DOWNLOADS_PATH`.
 - The dashboard has a reset control wired through `POST /demo/reset-downloads` to restore the fake Downloads fixture for repeatable demos.
+- In `TOOL_MODE=windows`, the desktop backend can launch allowlisted apps, create a fresh temp file for Notepad, focus the launched window when Windows allows it, and paste text through `keyboard_type`.
+- The coordinator auto-follows known Notepad typing goals with `keyboard_type` after `app_launch`, and voice dictation text can override the model's shorter typed-text argument.
 - The dashboard has a browser microphone path wired through `POST /voice/tasks`. The agent server transcribes with OpenAI's audio transcription API when `OPENAI_API_KEY` is configured, then submits the transcript as a normal task.
 - The dashboard supports a browser-scoped voice hotkey: `Ctrl+Shift+Space` toggles recording while the dashboard tab is active.
 - The dashboard supports browser-scoped wake words while enabled: utterances beginning with "Jarvis" or "Computer" are stripped of the wake word and submitted through `POST /voice/text-tasks`. Chrome/Edge use browser speech recognition; Firefox falls back to short MediaRecorder chunks sent to `POST /voice/wake-detect` for Whisper-based detection.
@@ -43,9 +46,9 @@ Purpose: current operational snapshot for any teammate or AI agent joining mid-h
 
 ## Highest-Priority Next Tasks
 
-1. Decide which tools are actually in scope for the MVP and align tool definitions with registered runtime behavior.
-2. Run the tool server from the signed-in interactive Windows terminal with `TOOL_MODE=windows` and verify the prompts `Open Notepad and type "Hello from NemotronOS."` and `Open my web browser and navigate to Canvas.`
-3. Expand beyond the single Downloads demo path only if the main Windows and Notepad demos are stable.
+1. Implement real `screen_capture` in `TOOL_MODE=windows`, including the payload shape the agent and dashboard should rely on for screenshot-driven tasks.
+2. Align tool definitions with registered runtime behavior so the advertised surface matches what the tool server can actually execute, especially once screenshot support lands.
+3. Keep the current stable demos tight: rerun the signed-in interactive Windows checks for Notepad typing and browser navigation after screenshot work changes the desktop backend.
 
 ## Windows Handoff Notes
 
