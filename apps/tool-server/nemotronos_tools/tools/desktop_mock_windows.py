@@ -37,6 +37,20 @@ class MockWindowsDesktopBackend(DesktopBackend):
             "typed_at": datetime.now(timezone.utc).isoformat(),
         }
 
+    def press_enter(self) -> dict[str, Any]:
+        return {
+            "mode": "mock_windows",
+            "pressed": "enter",
+            "pressed_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def press_escape(self) -> dict[str, Any]:
+        return {
+            "mode": "mock_windows",
+            "pressed": "escape",
+            "pressed_at": datetime.now(timezone.utc).isoformat(),
+        }
+
     def open_browser(self, url: str) -> dict[str, Any]:
         return {
             "mode": "mock_windows",

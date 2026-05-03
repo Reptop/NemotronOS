@@ -15,6 +15,9 @@ class ToolServerSettings:
     tool_mode: str
     fake_windows_root: Path
     default_downloads_path: str
+    canvas_base_url: str
+    canvas_api_token: str
+    canvas_course_aliases: dict[str, str]
 
 
 def _resolve_fake_windows_root(raw_value: str) -> Path:
@@ -35,4 +38,33 @@ def get_settings() -> ToolServerSettings:
             "DEFAULT_DOWNLOADS_PATH",
             r"C:\Users\Raed\Downloads",
         ),
+        canvas_base_url=os.getenv("CANVAS_BASE_URL", "https://canvas.oregonstate.edu"),
+        canvas_api_token=os.getenv("CANVAS_API_TOKEN", ""),
+        canvas_course_aliases=_canvas_course_aliases(),
     )
+
+
+def _canvas_course_aliases() -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    raw_aliases = os.getenv("CANVAS_COURSE_ALIASES", "")
+    for raw_pair in raw_aliases.split(";"):
+        if "=" not in raw_pair:
+            continue
+        alias, url = raw_pair.split("=", 1)
+        alias = alias.strip().lower()
+        url = url.strip()
+        if alias and url:
+            aliases[alias] = url
+
+    intro_to_ai_url = os.getenv("CANVAS_INTRO_TO_AI_URL", "").strip()
+    if intro_to_ai_url:
+        for alias in (
+            "intro to ai",
+            "intro to artificial intelligence",
+            "introduction to ai",
+            "introduction to artificial intelligence",
+            "ai",
+        ):
+            aliases.setdefault(alias, intro_to_ai_url)
+
+    return aliases

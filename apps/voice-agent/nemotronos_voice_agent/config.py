@@ -24,13 +24,17 @@ class VoiceAgentSettings:
     openwakeword_frame_ms: int
     speech_threshold: float
     listen_block_ms: int
+    preroll_seconds: float
     sample_rate: int
     channels: int
     input_device: str | None
     request_timeout_seconds: float
     tts_mode: str
+    tts_voice: str
     acknowledgement: str
+    submitted_acknowledgement: str
     listening_acknowledgement: str
+    outcome_wait_seconds: float
 
 
 def get_settings() -> VoiceAgentSettings:
@@ -80,13 +84,17 @@ def get_settings() -> VoiceAgentSettings:
         openwakeword_frame_ms=int(os.getenv("VOICE_AGENT_OPENWAKEWORD_FRAME_MS", "80")),
         speech_threshold=float(os.getenv("VOICE_AGENT_SPEECH_THRESHOLD", "350")),
         listen_block_ms=int(os.getenv("VOICE_AGENT_LISTEN_BLOCK_MS", "100")),
+        preroll_seconds=float(os.getenv("VOICE_AGENT_PREROLL_SECONDS", "0.35")),
         sample_rate=int(os.getenv("VOICE_AGENT_SAMPLE_RATE", "16000")),
         channels=int(os.getenv("VOICE_AGENT_CHANNELS", "1")),
         input_device=os.getenv("VOICE_AGENT_INPUT_DEVICE") or None,
         request_timeout_seconds=float(os.getenv("REQUEST_TIMEOUT_SECONDS", "30")),
         tts_mode=os.getenv("VOICE_AGENT_TTS_MODE", "windows_sapi"),
+        tts_voice=os.getenv("VOICE_AGENT_TTS_VOICE", ""),
         acknowledgement=os.getenv("VOICE_AGENT_ACK", "Of course, here you go."),
+        submitted_acknowledgement=os.getenv("VOICE_AGENT_SUBMITTED_ACK", "Got it."),
         listening_acknowledgement=os.getenv("VOICE_AGENT_LISTENING_ACK", "I'm listening."),
+        outcome_wait_seconds=float(os.getenv("VOICE_AGENT_OUTCOME_WAIT_SECONDS", "2.5")),
     )
 
 

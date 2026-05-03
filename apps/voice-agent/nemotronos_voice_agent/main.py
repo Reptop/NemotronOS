@@ -15,7 +15,7 @@ from .wake import extract_wake_command, has_wake_word
 
 async def run(settings: VoiceAgentSettings) -> None:
     client = AgentClient(settings)
-    speaker = build_speaker(settings.tts_mode)
+    speaker = build_speaker(settings.tts_mode, settings.tts_voice)
 
     try:
         health = await client.health()
@@ -54,7 +54,7 @@ async def run_manual_loop(settings: VoiceAgentSettings, client: AgentClient, spe
         command = extract_wake_command(raw_text, settings.wake_words) or raw_text.strip()
         if not command:
             continue
-        await submit_command(client, speaker, command, settings.acknowledgement, "voice_agent_manual")
+        await submit_command(client, speaker, command, settings, "voice_agent_manual")
 
 
 async def run_whisper_poll_loop(
@@ -69,6 +69,7 @@ async def run_whisper_poll_loop(
         f"{settings.wake_chunk_seconds:g}s max. "
         f"Command capture: {settings.command_silence_seconds:g}s silence/"
         f"{settings.command_chunk_seconds:g}s max. "
+        f"Input device: {settings.input_device or 'default'} at {settings.sample_rate}Hz. "
         "Press Ctrl+C to stop."
     )
     while True:
@@ -91,7 +92,7 @@ async def run_whisper_poll_loop(
                 client,
                 speaker,
                 command,
-                settings.acknowledgement,
+                settings,
                 "voice_agent_wake",
             )
             continue
@@ -100,7 +101,7 @@ async def run_whisper_poll_loop(
             continue
 
         print("Wake word heard. Listening for command...")
-        speak(settings.listening_acknowledgement, speaker)
+        await speak_async(settings.listening_acknowledgement, speaker)
         try:
             follow_up = await listen_once(settings, client, profile="command")
         except httpx.HTTPStatusError as exc:
@@ -120,7 +121,7 @@ async def run_whisper_poll_loop(
             print("No command heard after wake word.")
             continue
 
-        await submit_command(client, speaker, command, settings.acknowledgement, "voice_agent_wake")
+        await submit_command(client, speaker, command, settings, "voice_agent_wake")
 
 
 async def run_openwakeword_loop(
@@ -142,12 +143,13 @@ async def run_openwakeword_loop(
             "Wake detected locally: "
             f"{detection.model_name} ({detection.score:.2f}). Listening for command..."
         )
+        await speak_async(settings.listening_acknowledgement, speaker)
         command_audio = await asyncio.to_thread(record_command_wav, settings)
         await submit_audio_command(
             client,
             speaker,
             command_audio,
-            settings.acknowledgement,
+            settings,
         )
 
 
@@ -175,6 +177,7 @@ async def listen_once(
         settings.sample_rate,
         settings.channels,
         settings.input_device,
+        settings.preroll_seconds,
     )
     return await client.detect_wake_word(audio_bytes)
 
@@ -183,43 +186,46 @@ async def submit_command(
     client: AgentClient,
     speaker,
     command: str,
-    acknowledgement: str,
+    settings: VoiceAgentSettings,
     source: str,
 ) -> None:
     print(f"Command: {command}")
+    speak_background(settings.submitted_acknowledgement, speaker)
     response = await client.submit_command(command, source=source)
     task = response["task"]
     print(f"Submitted task {task['id']} ({task['state']}): {task['goal']}")
-    await speak_for_task_outcome(client, speaker, task, acknowledgement)
+    await speak_for_task_outcome(client, speaker, task, settings)
 
 
 async def submit_audio_command(
     client: AgentClient,
     speaker,
     audio_bytes: bytes,
-    acknowledgement: str,
+    settings: VoiceAgentSettings,
 ) -> None:
     print("Command audio captured. Transcribing...")
     response = await client.submit_audio_command(audio_bytes)
     transcription = response["transcription"]
     task = response["task"]
     print(f"Heard command: {transcription['text']}")
+    speak_background(settings.submitted_acknowledgement, speaker)
     print(f"Submitted task {task['id']} ({task['state']}): {task['goal']}")
-    await speak_for_task_outcome(client, speaker, task, acknowledgement)
+    await speak_for_task_outcome(client, speaker, task, settings)
 
 
 async def speak_for_task_outcome(
     client: AgentClient,
     speaker,
     task: dict,
-    success_acknowledgement: str,
+    settings: VoiceAgentSettings,
 ) -> None:
-    final_task = await wait_for_task_outcome(client, task)
-    message = spoken_outcome_message(final_task, success_acknowledgement)
-    speak_task = asyncio.create_task(speak_async(message, speaker))
-    speak_task.add_done_callback(_consume_task_exception)
-    if speak_task.done():
-        await speak_task
+    final_task = await wait_for_task_outcome(
+        client,
+        task,
+        timeout_seconds=settings.outcome_wait_seconds,
+    )
+    message = spoken_outcome_message(final_task, settings.acknowledgement)
+    speak_background(message, speaker)
 
 
 async def wait_for_task_outcome(
@@ -247,7 +253,7 @@ def spoken_outcome_message(task: dict, success_acknowledgement: str) -> str:
     if state == "completed":
         if _is_unsupported_notify_task(task):
             return "I don't know how to do that yet."
-        return success_acknowledgement
+        return ""
     if state == "waiting_for_approval":
         return "I need your approval before I do that."
     if state in {"failed", "cancelled", "blocked"}:
@@ -287,6 +293,13 @@ def _is_unsupported_notify_task(task: dict) -> bool:
 def speak(text: str, speaker) -> None:
     if text.strip():
         speaker.speak(text)
+
+
+def speak_background(text: str, speaker) -> None:
+    if not text.strip():
+        return
+    speak_task = asyncio.create_task(speak_async(text, speaker))
+    speak_task.add_done_callback(_consume_task_exception)
 
 
 async def speak_async(text: str, speaker) -> None:
@@ -333,13 +346,17 @@ def main() -> None:
             openwakeword_frame_ms=settings.openwakeword_frame_ms,
             speech_threshold=settings.speech_threshold,
             listen_block_ms=settings.listen_block_ms,
+            preroll_seconds=settings.preroll_seconds,
             sample_rate=settings.sample_rate,
             channels=settings.channels,
             input_device=settings.input_device,
             request_timeout_seconds=settings.request_timeout_seconds,
             tts_mode=settings.tts_mode,
+            tts_voice=settings.tts_voice,
             acknowledgement=settings.acknowledgement,
+            submitted_acknowledgement=settings.submitted_acknowledgement,
             listening_acknowledgement=settings.listening_acknowledgement,
+            outcome_wait_seconds=settings.outcome_wait_seconds,
         )
 
     try:

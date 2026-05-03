@@ -10,6 +10,8 @@ from .tools.desktop_base import DesktopBackend
 from .tools.desktop_actions import (
     app_launch,
     browser_open,
+    canvas_open_course,
+    discord_send_message,
     keyboard_type,
     mouse_click,
     youtube_click_video,
@@ -73,12 +75,26 @@ def build_tool_registry(settings: ToolServerSettings) -> ToolRegistry:
         lambda arguments: keyboard_type(arguments, desktop_backend),
     )
     registry.register(
+        "discord_send_message",
+        lambda arguments: discord_send_message(arguments, desktop_backend),
+    )
+    registry.register(
         "mouse_click",
         lambda arguments: mouse_click(arguments, desktop_backend),
     )
     registry.register(
         "browser_open",
         lambda arguments: browser_open(arguments, desktop_backend),
+    )
+    registry.register(
+        "canvas_open_course",
+        lambda arguments: canvas_open_course(
+            arguments,
+            desktop_backend,
+            settings.canvas_base_url,
+            settings.canvas_course_aliases,
+            settings.canvas_api_token,
+        ),
     )
     registry.register(
         "youtube_open",

@@ -4,6 +4,7 @@ import json
 import re
 from abc import ABC, abstractmethod
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from pydantic import BaseModel
@@ -54,6 +55,22 @@ class MockModelClient(ModelClient):
                     "allowed_operations": ["mkdir", "move"],
                 },
                 rationale="Create a dry-run organization plan for the Downloads folder first.",
+            )
+
+        discord_arguments = _extract_discord_message_arguments(goal)
+        if discord_arguments:
+            return PlannedToolCall(
+                name="discord_send_message",
+                arguments=discord_arguments,
+                rationale="Send the requested message to the active Discord conversation.",
+            )
+
+        canvas_arguments = _extract_canvas_arguments(goal)
+        if canvas_arguments:
+            return PlannedToolCall(
+                name="canvas_open_course",
+                arguments=canvas_arguments,
+                rationale="Open Canvas and navigate to the requested course.",
             )
 
         youtube_arguments = _extract_youtube_arguments(goal)
@@ -109,40 +126,13 @@ class OpenAICompatibleModelClient(ModelClient):
         self, goal: str, tool_definitions: list[dict[str, Any]]
     ) -> PlannedToolCall:
         force_downloads_plan = self._should_force_downloads_plan(goal)
-        youtube_arguments = _extract_youtube_arguments(goal)
-        if youtube_arguments:
-            return PlannedToolCall(
-                name="youtube_open",
-                arguments=youtube_arguments,
-                rationale="Open or search YouTube for the requested video.",
-            )
-
-        browser_target = _extract_browser_target(goal)
-        if browser_target:
-            return PlannedToolCall(
-                name="browser_open",
-                arguments={"url": browser_target},
-                rationale="Open the requested website in the default browser.",
-            )
-        if self._should_force_notepad_launch(goal):
-            return PlannedToolCall(
-                name="app_launch",
-                arguments={"app_name": "notepad"},
-                rationale="Launch Notepad before typing the requested note.",
-            )
 
         payload = {
             "model": self.settings.model_name,
             "messages": [
                 {
                     "role": "system",
-                    "content": (
-                        "You are NemotronOS, a private Windows PC agent. "
-                        "Pick exactly one next tool call. Use Windows-style paths. "
-                        "If the user asks to organize Downloads and see the plan first, "
-                        f"call fs_plan_changes on {self.settings.default_downloads_path}. "
-                        "Do not invent tools that are not in the provided tool list."
-                    ),
+                    "content": self._first_action_system_prompt(),
                 },
                 {"role": "user", "content": goal},
             ],
@@ -154,11 +144,27 @@ class OpenAICompatibleModelClient(ModelClient):
             "max_tokens": 256,
         }
 
-        planned_call = await self._request_tool_call(payload, tool_definitions)
+        try:
+            planned_call = await self._request_tool_call(payload, tool_definitions)
+        except (RuntimeError, ValueError, json.JSONDecodeError):
+            try:
+                planned_call = await self._request_json_tool_call(
+                    goal,
+                    tool_definitions,
+                    force_downloads_plan,
+                )
+            except (httpx.HTTPError, RuntimeError, ValueError, json.JSONDecodeError):
+                if force_downloads_plan:
+                    raise
+                planned_call = self._fallback_first_action(goal)
+        except httpx.HTTPError:
+            if force_downloads_plan:
+                raise
+            planned_call = self._fallback_first_action(goal)
+
         arguments = planned_call.arguments
         tool_name = planned_call.name
-        if force_downloads_plan and tool_name == "fs_plan_changes":
-            arguments = self._normalize_downloads_plan_arguments(goal, arguments)
+        arguments = self._normalize_first_action_arguments(goal, tool_name, arguments)
 
         return PlannedToolCall(
             name=tool_name,
@@ -220,6 +226,58 @@ class OpenAICompatibleModelClient(ModelClient):
         }
         return await self._request_tool_call(payload, tool_definitions)
 
+    def _first_action_system_prompt(self) -> str:
+        return (
+            "You are NemotronOS, a private Windows PC agent. "
+            "Interpret the user's request, including short or noisy voice transcripts, "
+            "and pick exactly one next tool call from the provided tool list. "
+            "Do not answer in prose. Do not invent tools. "
+            "Use Windows-style paths when paths are needed. "
+            "If the user asks to organize Downloads and see the plan first, call "
+            f"fs_plan_changes on {self.settings.default_downloads_path}. "
+            "If the user asks to type in Notepad, call app_launch with app_name='notepad'; "
+            "the coordinator will type the requested text afterward. "
+            "If the user asks for a website/domain/URL, call browser_open. "
+            "If the user asks for Canvas course navigation, call canvas_open_course with "
+            "the natural course name in course_query. "
+            "If the user asks for YouTube content, call youtube_open. Use action='random' "
+            "for random/recommended video requests, action='search' with query and "
+            "prefer_video_results=true for video/title/channel searches, and action='video' "
+            "only for exact YouTube URLs or IDs. "
+            "If the user asks to send/post/type a message to Discord or the active chat, "
+            "call discord_send_message with only the message body in text. "
+            "If no available tool can reasonably help, call notify_user with a brief message."
+        )
+
+    def _json_router_system_prompt(
+        self,
+        tool_definitions: list[dict[str, Any]],
+        force_downloads_plan: bool,
+    ) -> str:
+        tool_names = ", ".join(definition["name"] for definition in tool_definitions)
+        tool_schemas = json.dumps(tool_definitions, separators=(",", ":"))
+        forced_tool = (
+            " You must choose fs_plan_changes for this request."
+            if force_downloads_plan
+            else ""
+        )
+        return (
+            "You are NemotronOS's tool router. Return only one compact JSON object "
+            "and no other text. Do not include markdown, XML tags, <think>, or explanation. "
+            "The JSON schema is exactly: "
+            '{"name":"tool_name","arguments":{},"rationale":"short reason"}. '
+            f"Allowed tools: {tool_names}.{forced_tool} "
+            "Interpret short or noisy voice transcripts naturally. "
+            "For YouTube searches, use youtube_open with action='search', query, "
+            "and prefer_video_results=true. "
+            "For random YouTube video requests, use youtube_open with action='random'. "
+            "For Notepad typing, use app_launch with app_name='notepad'. "
+            "For Discord messages, use discord_send_message and put only the message body "
+            "in text. For Canvas course navigation, use canvas_open_course. "
+            "For normal websites/domains/URLs, use browser_open. "
+            f"Tool schemas: {tool_schemas}"
+        )
+
     async def _request_tool_call(
         self,
         payload: dict[str, Any],
@@ -249,6 +307,48 @@ class OpenAICompatibleModelClient(ModelClient):
             rationale=message.get("content"),
         )
 
+    async def _request_json_tool_call(
+        self,
+        goal: str,
+        tool_definitions: list[dict[str, Any]],
+        force_downloads_plan: bool,
+    ) -> PlannedToolCall:
+        headers = {"Authorization": f"Bearer {self.settings.model_api_key}"}
+        url = f"{self.settings.model_base_url.rstrip('/')}/chat/completions"
+        payload = {
+            "model": self.settings.model_name,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": self._json_router_system_prompt(
+                        tool_definitions,
+                        force_downloads_plan,
+                    ),
+                },
+                {"role": "user", "content": goal},
+            ],
+            "temperature": 0,
+            "max_tokens": 192,
+        }
+        async with httpx.AsyncClient(timeout=self.settings.request_timeout_seconds) as client:
+            response = await client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+
+        data = response.json()
+        content = str(data["choices"][0]["message"].get("content") or "")
+        parsed = self._parse_json_tool_content(content)
+        tool_name = str(parsed.get("name") or "").strip()
+        if tool_name not in {definition["name"] for definition in tool_definitions}:
+            raise RuntimeError(f"JSON planner requested unknown tool: {tool_name}")
+        arguments = parsed.get("arguments") or {}
+        if not isinstance(arguments, dict):
+            raise RuntimeError("JSON planner returned non-object arguments.")
+        return PlannedToolCall(
+            name=tool_name,
+            arguments=arguments,
+            rationale=str(parsed.get("rationale") or "").strip() or None,
+        )
+
     def _extract_tool_call(self, message: dict[str, Any]) -> dict[str, Any] | None:
         tool_calls = message.get("tool_calls") or []
         if tool_calls:
@@ -270,6 +370,30 @@ class OpenAICompatibleModelClient(ModelClient):
         parsed = json.loads(raw_arguments)
         if not isinstance(parsed, dict):
             raise RuntimeError("OpenAI-compatible model returned non-object tool arguments.")
+        return parsed
+
+    def _parse_json_tool_content(self, content: str) -> dict[str, Any]:
+        cleaned = content.strip()
+        if not cleaned:
+            raise RuntimeError("JSON planner returned empty content.")
+
+        fenced_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", cleaned, flags=re.DOTALL)
+        if fenced_match:
+            cleaned = fenced_match.group(1)
+        elif "<think>" in cleaned:
+            cleaned = re.sub(r"<think>.*?</think>", "", cleaned, flags=re.DOTALL).strip()
+
+        try:
+            parsed = json.loads(cleaned)
+        except json.JSONDecodeError:
+            start = cleaned.find("{")
+            end = cleaned.rfind("}")
+            if start < 0 or end <= start:
+                raise
+            parsed = json.loads(cleaned[start : end + 1])
+
+        if not isinstance(parsed, dict):
+            raise RuntimeError("JSON planner returned a non-object payload.")
         return parsed
 
     def _should_force_downloads_plan(self, goal: str) -> bool:
@@ -310,6 +434,80 @@ class OpenAICompatibleModelClient(ModelClient):
             "allowed_operations": sorted(normalized_operations),
         }
 
+    def _normalize_first_action_arguments(
+        self,
+        goal: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self._should_force_downloads_plan(goal) and tool_name == "fs_plan_changes":
+            return self._normalize_downloads_plan_arguments(goal, arguments)
+
+        if tool_name == "youtube_open":
+            action = str(arguments.get("action") or "").strip().lower()
+            if action in {"search", "specific", "play", "watch"}:
+                return {
+                    **arguments,
+                    "action": "search",
+                    "prefer_video_results": bool(
+                        arguments.get("prefer_video_results", True)
+                    ),
+                }
+        if tool_name == "discord_send_message":
+            text = str(arguments.get("text") or "").strip()
+            if text:
+                return {
+                    **arguments,
+                    "text": text,
+                    "open_if_needed": bool(arguments.get("open_if_needed", True)),
+                }
+        return arguments
+
+    def _fallback_first_action(self, goal: str) -> PlannedToolCall:
+        discord_arguments = _extract_discord_message_arguments(goal)
+        if discord_arguments:
+            return PlannedToolCall(
+                name="discord_send_message",
+                arguments=discord_arguments,
+                rationale="Fallback parser routed a Discord message request.",
+            )
+
+        canvas_arguments = _extract_canvas_arguments(goal)
+        if canvas_arguments:
+            return PlannedToolCall(
+                name="canvas_open_course",
+                arguments=canvas_arguments,
+                rationale="Fallback parser routed Canvas course navigation.",
+            )
+
+        youtube_arguments = _extract_youtube_arguments(goal)
+        if youtube_arguments:
+            return PlannedToolCall(
+                name="youtube_open",
+                arguments=youtube_arguments,
+                rationale="Fallback parser routed a YouTube request.",
+            )
+
+        browser_target = _extract_browser_target(goal)
+        if browser_target:
+            return PlannedToolCall(
+                name="browser_open",
+                arguments={"url": browser_target},
+                rationale="Fallback parser routed browser navigation.",
+            )
+        if self._should_force_notepad_launch(goal):
+            return PlannedToolCall(
+                name="app_launch",
+                arguments={"app_name": "notepad"},
+                rationale="Fallback parser routed Notepad typing setup.",
+            )
+
+        return PlannedToolCall(
+            name="notify_user",
+            arguments={"message": f"I do not know how to do that yet: {goal}"},
+            rationale="Fallback response for an unsupported goal.",
+        )
+
 
 def build_model_client(settings: AgentServerSettings) -> ModelClient:
     if settings.model_mode == "openai_compatible":
@@ -319,6 +517,13 @@ def build_model_client(settings: AgentServerSettings) -> ModelClient:
 
 def _extract_browser_target(goal: str) -> str | None:
     lowered_goal = goal.lower()
+    direct_web_target = _extract_direct_web_target(goal)
+    if direct_web_target:
+        return direct_web_target
+    direct_alias_target = _extract_direct_site_alias(goal)
+    if direct_alias_target:
+        return direct_alias_target
+
     browser_intent = any(
         phrase in lowered_goal
         for phrase in (
@@ -354,6 +559,91 @@ def _extract_browser_target(goal: str) -> str | None:
     return None
 
 
+def _extract_direct_site_alias(goal: str) -> str | None:
+    cleaned = _clean_direct_navigation_fragment(goal)
+    cleaned = re.sub(r"\b(?:url|website|web\s+site|page|webpage)\b", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" \t\n\r.,;:\"'")
+    aliases = ("canvas", "youtube", "google", "gmail", "github")
+    for alias in aliases:
+        if cleaned.lower() == alias:
+            return alias
+    return None
+
+
+def _extract_direct_web_target(goal: str) -> str | None:
+    cleaned = _clean_direct_navigation_fragment(goal)
+
+    direct_match = re.fullmatch(
+        r"(?:https?://)?(?:www\.)?[a-z0-9][a-z0-9-]*"
+        r"(?:\.[a-z0-9][a-z0-9-]*)+"
+        r"(?:/[^\s]*)?",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    if not direct_match:
+        return None
+
+    parsed = urlparse(cleaned if "://" in cleaned else f"https://{cleaned}")
+    host = parsed.netloc.lower()
+    if "." not in host:
+        return None
+
+    tld = host.rsplit(".", 1)[-1]
+    if tld not in {
+        "com",
+        "edu",
+        "org",
+        "net",
+        "gov",
+        "io",
+        "ai",
+        "dev",
+        "app",
+        "co",
+        "news",
+    }:
+        return None
+
+    return cleaned
+
+
+def _clean_direct_navigation_fragment(goal: str) -> str:
+    cleaned = goal.strip(" \t\n\r.,;:\"'")
+    cleaned = re.sub(r"^(?:computer|jarvis)\s*[,;:-]?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"^(?:please\s+)?(?:open|navigate|go|browse)\s+(?:to\s+)?",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"^(?:please\s+)?to\s+", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip(" \t\n\r.,;:\"'")
+
+
+def _extract_canvas_arguments(goal: str) -> dict[str, Any] | None:
+    lowered_goal = goal.lower()
+    if "canvas" not in lowered_goal:
+        return None
+    if not re.search(r"\b(course|class)\b", lowered_goal):
+        return None
+
+    patterns = (
+        r"\bcanvas\b.*?\b(?:navigate|go|open|take)\s+(?:me\s+)?(?:to\s+)?"
+        r"(?:my\s+|the\s+)?(.+?)\s+(?:course|class)\b",
+        r"\b(?:navigate|go|open|take)\s+(?:me\s+)?(?:to\s+)?"
+        r"(?:my\s+|the\s+)?(.+?)\s+(?:course|class)\s+(?:on|in)\s+canvas\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, goal, flags=re.IGNORECASE | re.DOTALL)
+        if not match:
+            continue
+        course_query = _clean_course_query(match.group(1))
+        if course_query:
+            return {"course_query": course_query}
+
+    return None
+
+
 def _extract_youtube_arguments(goal: str) -> dict[str, Any] | None:
     lowered_goal = goal.lower()
     if "youtube" not in lowered_goal and "youtu.be" not in lowered_goal:
@@ -370,6 +660,7 @@ def _extract_youtube_arguments(goal: str) -> dict[str, Any] | None:
         r"\b(?:search\s+(?:youtube\s+)?for)\s+(.+)$",
         r"\b(?:play|watch|open|find)\s+(?:a\s+video\s+(?:called|named)\s+|the\s+video\s+|video\s+)?(.+?)\s+(?:on\s+youtube)\b",
         r"\bon\s+youtube\s+(?:search\s+for|play|watch|find)\s+(.+)$",
+        r"^(.+?)\s+(?:on\s+youtube)\b",
     )
     for pattern in query_patterns:
         match = re.search(pattern, goal, flags=re.IGNORECASE)
@@ -377,12 +668,106 @@ def _extract_youtube_arguments(goal: str) -> dict[str, Any] | None:
             continue
         query = _clean_youtube_query(match.group(1))
         if query:
-            return {"action": "search", "query": query}
+            return {
+                "action": "search",
+                "query": query,
+                "prefer_video_results": True,
+            }
 
     if re.search(r"\b(open|go to|navigate to)\b", lowered_goal):
         return {"action": "home"}
 
     return {"action": "home"}
+
+
+def _extract_discord_message_arguments(goal: str) -> dict[str, Any] | None:
+    lowered_goal = goal.lower()
+    if not _looks_like_discord_message_goal(lowered_goal):
+        return None
+
+    discord_name = r"(?:discord|disc\s*cord|dis\s*cord|chord|cord)"
+    patterns = (
+        rf"\bsend\s+(?:a\s+)?{discord_name}\s+(?:a\s+)?message\s*"
+        r"(?:saying|that\s+says|with|:)?\s*[,;:-]?\s*(.+)$",
+        rf"\bopen\s+(?:a\s+)?{discord_name}\s*[,;-]?\s*(?:and\s+)?"
+        r"(?:send|post|paste|type|write)\s+"
+        r"(?:a\s+)?(?:message\s+)?(?:saying|that\s+says|with|:)?\s*[,;:-]?\s*(.+)$",
+        r"\b(?:send|post|paste|type|write)\s+(?:a\s+)?(?:message\s+)?"
+        rf"(?:to|in|on)\s+(?:a\s+)?{discord_name}(?:\s+(?:saying|that\s+says|with)|\s*[:,-])?\s+(.+)$",
+        rf"\b{discord_name}(?:,)?\s*(?:and\s+)?(?:send|post|paste|type|write)\s+"
+        r"(?:a\s+)?(?:message\s+)?(?:saying|that\s+says|with|:)?\s*[,;:-]?\s*(.+)$",
+        r"\b(?:send|post)\s+(?:this\s+)?(?:message\s+)?"
+        rf"(?:to\s+)?(?:the\s+)?(?:active\s+)?(?:a\s+)?{discord_name}\s+"
+        r"(?:chat|channel|conversation)?(?:\s*[:,-])?\s+(.+)$",
+        r"\b(?:send|post|paste|type|write)\s+(?:a\s+)?message\s*"
+        r"(?:saying|that\s+says|with|:)?\s*[,;:-]?\s*(.+)$",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, goal, flags=re.IGNORECASE | re.DOTALL)
+        if not match:
+            continue
+        text = _clean_message_text(match.group(1))
+        if text:
+            return {
+                "text": text,
+                "open_if_needed": True,
+            }
+
+    parts = re.split(rf"\b{discord_name}\b", goal, flags=re.IGNORECASE, maxsplit=1)
+    if len(parts) == 2:
+        text = _clean_message_text(
+            re.sub(
+                r"^\s*[,;:-]?\s*(?:and\s+)?(?:please\s+)?"
+                r"(?:(?:send|post|paste|type|write)\s+)?"
+                r"(?:a\s+)?(?:message\s+)?(?:saying|that\s+says|with)?\s*[,;:-]?\s*",
+                "",
+                parts[1],
+                flags=re.IGNORECASE,
+            )
+        )
+        if text:
+            return {
+                "text": text,
+                "open_if_needed": True,
+            }
+
+    return None
+
+
+def _looks_like_discord_message_goal(lowered_goal: str) -> bool:
+    has_discordish_word = re.search(
+        r"\b(?:discord|disc\s*cord|dis\s*cord|chord|cord)\b",
+        lowered_goal,
+    )
+    has_send_message_shape = re.search(
+        r"\b(?:send|post|paste|type|write)\s+(?:a\s+)?message\b",
+        lowered_goal,
+    )
+    return bool(has_discordish_word or has_send_message_shape)
+
+
+def _clean_message_text(text: str) -> str:
+    cleaned = text.strip(" \t\n\r")
+    cleaned = re.sub(
+        r"^(?:saying|say|that\s+says|message\s+is|message)\s*[,;:-]?\s+",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    return cleaned.strip(" \t\n\r.,;:\"'")
+
+
+def _clean_course_query(text: str) -> str:
+    cleaned = text.strip(" \t\n\r.,;:\"'")
+    cleaned = re.sub(r"^(?:my|the|a|an)\s+", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"\b(?:please|canvas|navigate|open|go|take|me)\b",
+        " ",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.strip(" \t\n\r.,;:\"'")
 
 
 def _clean_youtube_query(query: str) -> str:

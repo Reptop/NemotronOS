@@ -42,11 +42,6 @@ def tool_definitions() -> list[dict[str, Any]]:
             "parameters": {"type": "object", "properties": {}},
         },
         {
-            "name": "ui_find",
-            "description": "Find UI elements on the current screen.",
-            "parameters": {"type": "object", "properties": {"query": {"type": "string"}}},
-        },
-        {
             "name": "mouse_click",
             "description": "Click on a UI target.",
             "parameters": {
@@ -69,6 +64,22 @@ def tool_definitions() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "discord_send_message",
+            "description": (
+                "Send a message to the currently active Discord conversation. "
+                "This focuses/opens Discord, pastes text into the active chat input, "
+                "and presses Enter without selecting servers or channels."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "open_if_needed": {"type": "boolean"},
+                },
+                "required": ["text"],
+            },
+        },
+        {
             "name": "app_launch",
             "description": "Launch an application.",
             "parameters": {
@@ -76,7 +87,14 @@ def tool_definitions() -> list[dict[str, Any]]:
                 "properties": {
                     "app_name": {
                         "type": "string",
-                        "enum": ["notepad", "calculator", "calc", "paint", "mspaint"],
+                        "enum": [
+                            "notepad",
+                            "calculator",
+                            "calc",
+                            "paint",
+                            "mspaint",
+                            "discord",
+                        ],
                     }
                 },
                 "required": ["app_name"],
@@ -120,6 +138,7 @@ def tool_definitions() -> list[dict[str, Any]]:
                     "query": {"type": "string"},
                     "video_url": {"type": "string"},
                     "video_id": {"type": "string"},
+                    "prefer_video_results": {"type": "boolean"},
                 },
                 "required": ["action"],
             },
@@ -128,7 +147,7 @@ def tool_definitions() -> list[dict[str, Any]]:
             "name": "youtube_click_video",
             "description": (
                 "Click a visible YouTube video in the foreground browser window using "
-                "a screen-coordinate heuristic. Use first_result after YouTube search "
+                "a screen-coordinate heuristic. Use first_video_result after YouTube search "
                 "pages and random_visible after the YouTube home/recommendations page."
             ),
             "parameters": {
@@ -136,7 +155,7 @@ def tool_definitions() -> list[dict[str, Any]]:
                 "properties": {
                     "selection": {
                         "type": "string",
-                        "enum": ["first_result", "random_visible"],
+                        "enum": ["first_result", "first_video_result", "random_visible"],
                     },
                     "wait_seconds": {"type": "number"},
                 },
@@ -144,22 +163,17 @@ def tool_definitions() -> list[dict[str, Any]]:
             },
         },
         {
-            "name": "browser_click_text",
-            "description": "Click a text element in the browser.",
-            "parameters": {"type": "object", "properties": {"text": {"type": "string"}}},
-        },
-        {
-            "name": "browser_type",
-            "description": "Type text into a browser input.",
+            "name": "canvas_open_course",
+            "description": (
+                "Open Canvas and navigate to a requested course. If a configured "
+                "course alias or Canvas API token is available, open the exact course; "
+                "otherwise open the user's Canvas courses page."
+            ),
             "parameters": {
                 "type": "object",
-                "properties": {"selector": {"type": "string"}, "text": {"type": "string"}},
+                "properties": {"course_query": {"type": "string"}},
+                "required": ["course_query"],
             },
-        },
-        {
-            "name": "browser_extract_page",
-            "description": "Extract structured text from the current browser page.",
-            "parameters": {"type": "object", "properties": {}},
         },
         {
             "name": "notify_user",
@@ -168,17 +182,6 @@ def tool_definitions() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {"message": {"type": "string"}},
                 "required": ["message"],
-            },
-        },
-        {
-            "name": "user_confirm",
-            "description": "Request human approval before continuing.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "message": {"type": "string"},
-                    "risk_level": {"type": "string"},
-                },
             },
         },
     ]

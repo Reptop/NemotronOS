@@ -37,7 +37,7 @@ class VoiceOutcomeTests(unittest.TestCase):
 
         self.assertEqual(
             spoken_outcome_message(task, "Of course, here you go."),
-            "Of course, here you go.",
+            "",
         )
 
     def test_approval_task_gets_approval_message(self) -> None:
