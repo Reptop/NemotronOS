@@ -154,8 +154,12 @@ class WindowsDesktopBackend(DesktopBackend):
         captured_at = datetime.now(timezone.utc).isoformat()
         try:
             foreground_window = self._foreground_window_rect()
-        except OSError:
+        except Exception:  # noqa: BLE001 - screenshot metadata should not block capture success
             foreground_window = None
+        try:
+            virtual_screen_origin = self._virtual_screen_origin()
+        except Exception:  # noqa: BLE001 - fallback for non-Windows test environments
+            virtual_screen_origin = {"x": 0, "y": 0}
         return {
             "mode": "windows",
             "captured": True,
@@ -165,7 +169,7 @@ class WindowsDesktopBackend(DesktopBackend):
             "mime_type": "image/png",
             "width": width,
             "height": height,
-            "virtual_screen_origin": self._virtual_screen_origin(),
+            "virtual_screen_origin": virtual_screen_origin,
             **({"foreground_window": foreground_window} if foreground_window else {}),
         }
 

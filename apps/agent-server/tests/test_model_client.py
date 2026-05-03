@@ -62,6 +62,7 @@ class OpenAICompatibleModelClientTests(unittest.TestCase):
         settings = AgentServerSettings(
             app_env="test",
             model_mode="openai_compatible",
+            model_provider="nim",
             model_base_url="http://127.0.0.1:8000/v1",
             model_name="test-model",
             model_api_key="test-key",
@@ -75,6 +76,30 @@ class OpenAICompatibleModelClientTests(unittest.TestCase):
         )
         self.client = OpenAICompatibleModelClient(settings)
         self.settings = settings
+
+    def test_ollama_provider_uses_openai_compat_chat_route(self) -> None:
+        ollama_settings = AgentServerSettings(
+            app_env="test",
+            model_mode="openai_compatible",
+            model_provider="ollama",
+            model_base_url="http://localhost:11434",
+            model_name="nemotron-3-nano:4b",
+            model_api_key="ollama",
+            openai_api_key="test-openai-key",
+            transcription_model="whisper-1",
+            openai_base_url="https://api.openai.com/v1",
+            default_downloads_path=r"C:\Users\Raed\Downloads",
+            tool_server_url="http://127.0.0.1:5050",
+            agent_server_url="http://127.0.0.1:5051",
+            request_timeout_seconds=1,
+        )
+
+        client = OpenAICompatibleModelClient(ollama_settings)
+
+        self.assertEqual(
+            client._chat_completions_url(),
+            "http://localhost:11434/v1/chat/completions",
+        )
 
     def test_extracts_legacy_function_call(self) -> None:
         message = {

@@ -9,9 +9,17 @@ nemotronos_agent/policy.py
 nemotronos_agent/task_store.py
 nemotronos_agent/tool_defs.py
 nemotronos_agent/tool_registry.py
+nemotronos_agent/voice.py
 nemotronos_agent/worker.py
 nemotronos_agent_server.egg-info/PKG-INFO
 nemotronos_agent_server.egg-info/SOURCES.txt
 nemotronos_agent_server.egg-info/dependency_links.txt
 nemotronos_agent_server.egg-info/requires.txt
 nemotronos_agent_server.egg-info/top_level.txt
+tests/test_config.py
+tests/test_coordinator_youtube.py
+tests/test_model_client.py
+tests/test_task_store.py
+tests/test_voice.py
+tests/test_voice_command.py
+tests/test_worker.py
