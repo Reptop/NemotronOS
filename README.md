@@ -177,7 +177,25 @@ This is still a scaffold. The current recommended demo path is the refined Whisp
 
 ### Real Windows desktop tool mode
 
-For the first real desktop-control slice, set `TOOL_MODE=windows` and run the tool server from an interactive Windows terminal. The tool server currently allowlists `notepad`, `calculator`/`calc`, `paint`/`mspaint`, and `discord` for `app_launch`, supports `keyboard_type` through clipboard paste, supports Discord message sending to the currently active conversation, supports `browser_open` through the default Windows browser, supports Canvas course opening through configured aliases or an optional Canvas API token, and has screenshot-first mouse clicking for YouTube video selection with a ratio-click fallback.
+For the first real desktop-control slice, set `TOOL_MODE=windows` and run the tool server from an interactive Windows terminal. The tool server currently allowlists `notepad`, `calculator`/`calc`, `paint`/`mspaint`, and `discord` for `app_launch`, supports `keyboard_type` through clipboard paste, supports Discord message sending to the currently active conversation, supports `browser_open` through the default Windows browser, supports Canvas course opening through configured aliases or an optional Canvas API token, has screenshot-first mouse clicking for YouTube video selection with a ratio-click fallback, and now has a separate Chrome-first Playwright browser automation path for DOM-aware multi-step browser tasks.
+
+Browser automation setup for `TOOL_MODE=windows`:
+
+```bash
+BROWSER_AUTOMATION_ENABLED=true
+BROWSER_USER_DATA_DIR=C:\Users\<you>\AppData\Local\Google\Chrome\User Data
+BROWSER_PROFILE_DIR=Default
+BROWSER_HEADLESS=false
+BROWSER_DEFAULT_TIMEOUT_MS=10000
+```
+
+Optional override:
+
+```bash
+BROWSER_CHROME_EXECUTABLE=C:\Program Files\Google\Chrome\Application\chrome.exe
+```
+
+The managed browser session is separate from arbitrary already-open browser windows or tabs. Use a dedicated persistent Chrome profile for NemotronOS automation so logged-in state is predictable and profile locking is less likely.
 
 First manual test prompt:
 
@@ -200,6 +218,18 @@ For deterministic Canvas course routing, set either `CANVAS_INTRO_TO_AI_URL=http
 `Open YouTube and play a random video.`
 
 `Play lofi hip hop on YouTube.`
+
+Generic browser-agent prompts:
+
+`Open cnn.com and tell me the top headline.`
+
+`Open GitHub, search for NemotronOS, and open the repository.`
+
+`Open Google, search for RTX 2070 Super VRAM, and open the first result.`
+
+`Open Gmail and click Compose.`
+
+For the new managed browser tools, read-only actions such as session start, navigate, and snapshot run immediately. Browser mutations such as DOM click, type, select, and key press now require approval before execution.
 
 Discord test prompt:
 
@@ -229,6 +259,7 @@ If the tool server is launched from a hidden or non-interactive service context,
 - `POST /demo/reset-downloads`
 
 Currently registered tool-server tools include `app_launch`, `keyboard_type`, `discord_send_message`, `mouse_click`, `browser_open`, `canvas_open_course`, `youtube_open`, `youtube_click_video`, `fs_plan_changes`, `fs_apply_changes`, `screen_capture`, `shell_run`, and `notify_user`.
+Managed browser automation tools are also registered: `browser_session_ensure`, `browser_navigate`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_select_option`, and `browser_press`.
 
 ## Notes
 

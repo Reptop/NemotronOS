@@ -29,7 +29,14 @@ class PolicyDecision(BaseModel):
 
 class PolicyEngine:
     def classify(self, tool_name: str, arguments: dict[str, Any]) -> PolicyDecision:
-        if tool_name in {"screen_capture", "fs_plan_changes", "notify_user"}:
+        if tool_name in {
+            "screen_capture",
+            "fs_plan_changes",
+            "notify_user",
+            "browser_session_ensure",
+            "browser_navigate",
+            "browser_snapshot",
+        }:
             return PolicyDecision(
                 tool_name=tool_name,
                 risk_level="low",
@@ -88,12 +95,36 @@ class PolicyEngine:
                 reason="Typing into the active app changes desktop state and is limited to demo text.",
             )
 
+        if tool_name == "browser_type":
+            text = str(arguments.get("text", ""))
+            if len(text) > 500:
+                return PolicyDecision(
+                    tool_name=tool_name,
+                    risk_level="medium",
+                    allowed=False,
+                    reason="Browser typing is limited to 500 characters in the demo path.",
+                )
+            return PolicyDecision(
+                tool_name=tool_name,
+                risk_level="medium",
+                allowed=True,
+                reason="Typing into a managed browser page changes external state and requires approval.",
+            )
+
         if tool_name in {"mouse_click", "youtube_click_video"}:
             return PolicyDecision(
                 tool_name=tool_name,
                 risk_level="medium",
                 allowed=True,
                 reason="Mouse clicks change desktop/browser state and are limited to demo interactions.",
+            )
+
+        if tool_name in {"browser_click", "browser_select_option", "browser_press"}:
+            return PolicyDecision(
+                tool_name=tool_name,
+                risk_level="medium",
+                allowed=True,
+                reason="Managed browser mutations change page state and require approval.",
             )
 
         if tool_name in {"browser_open", "youtube_open", "canvas_open_course"}:

@@ -7,6 +7,16 @@ from .config import ToolServerSettings
 from .path_mapper import FakeWindowsPathMapper
 from .plan_store import PlanStore
 from .tools.desktop_base import DesktopBackend
+from .tools.browser_actions import (
+    browser_click,
+    browser_navigate,
+    browser_press,
+    browser_select_option,
+    browser_session_ensure,
+    browser_snapshot,
+    browser_type,
+)
+from .tools.browser_automation import build_browser_automation_service
 from .tools.desktop_actions import (
     app_launch,
     browser_open,
@@ -56,6 +66,7 @@ def build_tool_registry(settings: ToolServerSettings) -> ToolRegistry:
     plan_store = PlanStore()
     filesystem_tools = FilesystemToolService(path_mapper=path_mapper, plan_store=plan_store)
     desktop_backend = _build_desktop_backend(settings)
+    browser_service = build_browser_automation_service(settings)
 
     registry = ToolRegistry()
     registry.register("fs_plan_changes", filesystem_tools.fs_plan_changes)
@@ -85,6 +96,34 @@ def build_tool_registry(settings: ToolServerSettings) -> ToolRegistry:
     registry.register(
         "browser_open",
         lambda arguments: browser_open(arguments, desktop_backend),
+    )
+    registry.register(
+        "browser_session_ensure",
+        lambda arguments: browser_session_ensure(arguments, browser_service),
+    )
+    registry.register(
+        "browser_navigate",
+        lambda arguments: browser_navigate(arguments, browser_service),
+    )
+    registry.register(
+        "browser_snapshot",
+        lambda arguments: browser_snapshot(arguments, browser_service),
+    )
+    registry.register(
+        "browser_click",
+        lambda arguments: browser_click(arguments, browser_service),
+    )
+    registry.register(
+        "browser_type",
+        lambda arguments: browser_type(arguments, browser_service),
+    )
+    registry.register(
+        "browser_select_option",
+        lambda arguments: browser_select_option(arguments, browser_service),
+    )
+    registry.register(
+        "browser_press",
+        lambda arguments: browser_press(arguments, browser_service),
     )
     registry.register(
         "canvas_open_course",
