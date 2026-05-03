@@ -24,6 +24,15 @@ class WakeTests(unittest.TestCase):
     def test_detects_wake_word_without_command(self) -> None:
         self.assertTrue(has_wake_word("Computer.", ("jarvis", "computer")))
         self.assertIsNone(extract_wake_command("Computer.", ("jarvis", "computer")))
+        self.assertTrue(has_wake_word("Computer?", ("jarvis", "computer")))
+        self.assertIsNone(extract_wake_command("Computer?", ("jarvis", "computer")))
+        self.assertIsNone(extract_wake_command("Jarvis?!", ("jarvis", "computer")))
+
+    def test_skips_punctuation_before_command(self) -> None:
+        self.assertEqual(
+            extract_wake_command("Computer? open Notepad", ("jarvis", "computer")),
+            "open Notepad",
+        )
 
     def test_finds_later_valid_wake_word(self) -> None:
         self.assertEqual(

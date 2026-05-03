@@ -20,6 +20,7 @@ class AgentServerSettings:
     tool_server_url: str
     agent_server_url: str
     request_timeout_seconds: float
+    model_code_max_tokens: int = 2048
 
 
 def get_settings() -> AgentServerSettings:
@@ -44,6 +45,7 @@ def get_settings() -> AgentServerSettings:
         tool_server_url=os.getenv("TOOL_SERVER_URL", "http://localhost:5050"),
         agent_server_url=os.getenv("AGENT_SERVER_URL", "http://localhost:5051"),
         request_timeout_seconds=float(os.getenv("REQUEST_TIMEOUT_SECONDS", "15")),
+        model_code_max_tokens=int(os.getenv("MODEL_CODE_MAX_TOKENS", "2048")),
     )
 
 

@@ -21,19 +21,24 @@ from .tools.browser_actions import (
     gmail_send_current_draft,
 )
 from .tools.browser_automation import build_browser_automation_service
+from .tools.canvas import canvas_list_assignments_due_soon
 from .tools.desktop_actions import (
+    accessibility_describe_screen,
     app_launch,
     browser_open,
     canvas_open_course,
     discord_send_message,
     keyboard_type,
     mouse_click,
+    sticky_note_create,
+    vscode_paste_code,
     youtube_click_video,
     youtube_open,
 )
 from .tools.desktop_mock_windows import MockWindowsDesktopBackend
 from .tools.desktop_windows import WindowsDesktopBackend
 from .tools.filesystem import FilesystemToolService
+from .tools.gmail import email_create_draft
 from .tools.notify import notify_user
 from .tools.screen import screen_capture
 from .tools.shell import shell_run
@@ -82,12 +87,28 @@ def build_tool_registry(settings: ToolServerSettings) -> ToolRegistry:
         lambda arguments: screen_capture(arguments, desktop_backend),
     )
     registry.register(
+        "accessibility_describe_screen",
+        lambda arguments: accessibility_describe_screen(arguments, desktop_backend),
+    )
+    registry.register(
         "app_launch",
         lambda arguments: app_launch(arguments, desktop_backend),
     )
     registry.register(
         "keyboard_type",
         lambda arguments: keyboard_type(arguments, desktop_backend),
+    )
+    registry.register(
+        "sticky_note_create",
+        lambda arguments: sticky_note_create(arguments, desktop_backend),
+    )
+    registry.register(
+        "vscode_paste_code",
+        lambda arguments: vscode_paste_code(
+            arguments,
+            desktop_backend,
+            settings.vscode_command,
+        ),
     )
     registry.register(
         "discord_send_message",
@@ -153,6 +174,22 @@ def build_tool_registry(settings: ToolServerSettings) -> ToolRegistry:
             settings.canvas_base_url,
             settings.canvas_course_aliases,
             settings.canvas_api_token,
+        ),
+    )
+    registry.register(
+        "canvas_list_assignments_due_soon",
+        lambda arguments: canvas_list_assignments_due_soon(
+            arguments,
+            settings.canvas_base_url,
+            settings.canvas_api_token,
+        ),
+    )
+    registry.register(
+        "email_create_draft",
+        lambda arguments: email_create_draft(
+            arguments,
+            settings.gmail_client_secrets_path,
+            settings.gmail_token_path,
         ),
     )
     registry.register(

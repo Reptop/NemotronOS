@@ -2,8 +2,11 @@ export default function EventTimeline({ events }) {
   return (
     <section className="panel">
       <div className="panel-heading">
-        <h2>Event Timeline</h2>
-        <p>Every major state change and tool call is captured for the demo.</p>
+        <h2>
+          <span className="nf-icon" aria-hidden="true">󰙅</span>
+          Telemetry
+        </h2>
+        <p>Tool calls, policy checks, and state changes stream into the demo log.</p>
       </div>
 
       {!events.length ? (

@@ -73,12 +73,20 @@ class AgentWorker:
         return result
 
     def _redact_tool_arguments(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        if "text_ref" not in arguments:
-            return arguments
-
         redacted = dict(arguments)
-        text = str(redacted.get("text", ""))
-        redacted["text"] = f"<{len(text)} chars from {redacted['text_ref']}>"
+        if "text_ref" in redacted:
+            text = str(redacted.get("text", ""))
+            if "text" in redacted:
+                redacted["text"] = f"<{len(text)} chars from {redacted['text_ref']}>"
+            if "message" in redacted:
+                message = str(redacted.get("message", ""))
+                redacted["message"] = f"<{len(message)} chars from {redacted['text_ref']}>"
+        if "code_ref" in redacted:
+            code = str(redacted.get("code", ""))
+            redacted["code"] = f"<{len(code)} chars from {redacted['code_ref']}>"
+        if "body_ref" in redacted and "body" in redacted:
+            body = str(redacted.get("body", ""))
+            redacted["body"] = f"<{len(body)} chars from {redacted['body_ref']}>"
         return redacted
 
     async def fetch_tool_server_health(self) -> dict[str, Any]:

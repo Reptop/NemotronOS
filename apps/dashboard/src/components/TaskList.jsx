@@ -1,6 +1,6 @@
 function RiskBadge({ level }) {
   if (!level) {
-    return <span className="badge badge-neutral">none</span>;
+    return <span className="badge badge-neutral">No risk</span>;
   }
 
   return <span className={`badge badge-${level}`}>{level}</span>;
@@ -31,7 +31,7 @@ export default function TaskList({ tasks, selectedTaskId, onSelectTask }) {
     return (
       <section className="panel">
         <div className="empty-state">
-          <h2>No tasks yet</h2>
+          <h2>Task queue</h2>
           <p>Submit the Downloads organizer prompt to kick off the first demo.</p>
         </div>
       </section>
@@ -41,8 +41,11 @@ export default function TaskList({ tasks, selectedTaskId, onSelectTask }) {
   return (
     <section className="panel">
       <div className="panel-heading">
-        <h2>Tasks</h2>
-        <p>Track planning, approval, and completion in one place.</p>
+        <h2>
+          <span className="nf-icon" aria-hidden="true">󰄬</span>
+          Task queue
+        </h2>
+        <p>Planning, approval, and completion stay visible as the agent works.</p>
       </div>
       <div className="task-list">
         {tasks.map((task) => (

@@ -4,7 +4,7 @@ import asyncio
 import unittest
 from typing import Any
 
-from nemotronos_agent.coordinator import AgentCoordinator
+from nemotronos_agent.coordinator import AgentCoordinator, build_safe_action_narration
 from nemotronos_agent.event_log import EventLog
 from nemotronos_agent.model_client import PlannedToolCall
 from nemotronos_agent.policy import PolicyEngine
@@ -73,6 +73,34 @@ class CoordinatorYouTubeTests(unittest.TestCase):
         self.assertEqual(worker.calls[0][0], "youtube_open")
         self.assertEqual(worker.calls[1][0], "youtube_click_video")
         self.assertEqual(worker.calls[1][1]["selection"], "first_video_result")
+        self.assertEqual(
+            updated_task.memory["voice_response_text"],
+            "I opened YouTube and selected a video result.",
+        )
+        self.assertEqual(
+            updated_task.result["voice_response_text"],
+            "I opened YouTube and selected a video result.",
+        )
+
+    def test_safe_discord_narration_does_not_echo_message_text(self) -> None:
+        narration = build_safe_action_narration(
+            "discord_send_message",
+            result={"sent": True, "characters": 19},
+            arguments={"text": "private message text"},
+        )
+
+        self.assertEqual(narration, "I sent the message in the active Discord conversation.")
+        self.assertNotIn("private", narration)
+
+    def test_browser_narration_uses_site_without_query(self) -> None:
+        narration = build_safe_action_narration(
+            "browser_open",
+            result={"url": "https://www.cnn.com/search?q=private+search"},
+            arguments={},
+        )
+
+        self.assertEqual(narration, "I opened cnn.com.")
+        self.assertNotIn("private", narration)
 
 
 if __name__ == "__main__":

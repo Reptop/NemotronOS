@@ -67,12 +67,54 @@ def app_launch(arguments: dict[str, Any], desktop_backend: DesktopBackend) -> di
     return desktop_backend.launch_app(app_name)
 
 
+def accessibility_describe_screen(
+    arguments: dict[str, Any],
+    desktop_backend: DesktopBackend,
+) -> dict[str, Any]:
+    include_screenshot = bool(arguments.get("include_screenshot", True))
+    try:
+        max_windows = int(arguments.get("max_windows", 10))
+    except (TypeError, ValueError):
+        max_windows = 10
+    return desktop_backend.describe_screen(
+        include_screenshot=include_screenshot,
+        max_windows=max(1, min(max_windows, 30)),
+    )
+
+
 def keyboard_type(arguments: dict[str, Any], desktop_backend: DesktopBackend) -> dict[str, Any]:
     text = str(arguments.get("text", ""))
     if not text:
         raise ValueError("keyboard_type requires text.")
 
     return desktop_backend.type_text(text)
+
+
+def sticky_note_create(arguments: dict[str, Any], desktop_backend: DesktopBackend) -> dict[str, Any]:
+    text = str(arguments.get("text", "")).strip()
+    if not text:
+        raise ValueError("sticky_note_create requires text.")
+
+    return desktop_backend.create_sticky_note(text)
+
+
+def vscode_paste_code(
+    arguments: dict[str, Any],
+    desktop_backend: DesktopBackend,
+    vscode_command: str,
+) -> dict[str, Any]:
+    code = str(arguments.get("code", ""))
+    if not code.strip():
+        raise ValueError("vscode_paste_code requires code.")
+
+    language = str(arguments.get("language") or "").strip().lower()
+    open_new_window = bool(arguments.get("open_new_window", True))
+    return desktop_backend.open_code_editor(
+        code=code,
+        language=language,
+        open_new_window=open_new_window,
+        command=vscode_command,
+    )
 
 
 def discord_send_message(

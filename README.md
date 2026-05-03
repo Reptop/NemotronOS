@@ -159,25 +159,48 @@ Useful modes:
 - `VOICE_AGENT_WAKE_MODE=whisper_poll`: recommended current demo mode. It waits for speech, records until a short silence, and asks the agent server to detect `Jarvis` or `Computer` through `POST /voice/wake-detect`.
 - `VOICE_AGENT_WAKE_MODE=openwakeword`: optional local wake mode. It listens locally with openWakeWord, then only sends the post-wake command audio for transcription. The current installed local model is `hey_jarvis`, so use Whisper-poll mode if you want `Computer`.
 - `nemotronos-voice-agent --mode manual`: no microphone; type commands into the console for quick testing.
+- `nemotronos-voice-agent --test-tts "Testing the NemotronOS voice."`: speak once through the configured TTS backend and exit. This is the quickest way to diagnose OpenAI TTS without starting the wake loop.
 - `VOICE_AGENT_INPUT_DEVICE`: optional sounddevice index or name when Windows picks the wrong microphone.
 - `VOICE_AGENT_OPENWAKEWORD_MODELS`: semicolon-separated openWakeWord model names or model paths. The default is `hey_jarvis`.
 - `VOICE_AGENT_OPENWAKEWORD_THRESHOLD` and `VOICE_AGENT_OPENWAKEWORD_FRAME_MS`: tune local wake sensitivity and streaming frame size.
 - `VOICE_AGENT_WAKE_SILENCE_SECONDS`, `VOICE_AGENT_WAKE_CHUNK_SECONDS`, `VOICE_AGENT_COMMAND_SILENCE_SECONDS`, and `VOICE_AGENT_COMMAND_CHUNK_SECONDS`: tune the faster wake capture separately from the longer command capture.
 - `VOICE_AGENT_SPEECH_THRESHOLD` and `VOICE_AGENT_LISTEN_BLOCK_MS`: tune speech detection sensitivity and how quickly silence is noticed.
 - `VOICE_AGENT_SUBMITTED_ACK`: quick neutral acknowledgement after a command is accepted locally. Keep it neutral because the task may still fail or be unsupported.
+- `VOICE_AGENT_ACCESSIBILITY_ACK`: quick acknowledgement for screen-reading or "what did you do" commands. The current demo value is `Let me take a look.`
 - `VOICE_AGENT_LISTENING_ACK`: optional prompt after a wake-only utterance. The current demo value is `uh huh`; the voice agent waits for this short acknowledgement to finish before recording the command.
-- `VOICE_AGENT_TTS_VOICE`: optional Windows SAPI voice name. On this Windows machine the installed choices are `Microsoft David Desktop`, `Microsoft Zira Desktop`, and `Microsoft Haruka Desktop`; the current demo value is `Microsoft Zira Desktop`.
+- `VOICE_AGENT_OUTCOME_WAIT_SECONDS`: short foreground wait after command submission before the agent returns to listening.
+- `VOICE_AGENT_FINAL_OUTCOME_WAIT_SECONDS`: longer background wait for delayed spoken results such as accessibility narration.
+- `VOICE_AGENT_TTS_MODE`: `windows_sapi` for the built-in offline Windows voices, or `openai` for the more natural temporary dev voice path.
+- `VOICE_AGENT_TTS_VOICE`: for `windows_sapi`, use an installed SAPI voice such as `Microsoft Zira Desktop`; for `openai`, use a TTS voice such as `marin`, `cedar`, `coral`, `sage`, or `nova`.
+- `VOICE_AGENT_TTS_MODEL`: default `gpt-4o-mini-tts` for the OpenAI TTS mode.
+- `VOICE_AGENT_TTS_RESPONSE_FORMAT`: default `mp3`; this is the most reliable Windows playback path for the current demo.
+- `VOICE_AGENT_TTS_INSTRUCTIONS`: optional style prompt for OpenAI TTS, for example `Speak like a calm, warm PC accessibility assistant.`
+- `VOICE_AGENT_TTS_SPEED`: optional speech speed; default `1.0`.
 - If the wake word is heard without a command, the voice agent immediately treats the next utterance as the command.
 
 Example:
 
 `Computer, open notepad and type in hello from the local voice agent`
 
-This is still a scaffold. The current recommended demo path is the refined Whisper-poll loop because it supports both `Jarvis` and `Computer`. It gives a short wake acknowledgement, gives a quick neutral acknowledgement after command submission, stays quiet on successful task completion, and only speaks again for unsupported, failed, or approval-gated tasks. The next privacy step is local NVIDIA Speech NIM/Riva ASR and TTS when those services are available, plus either a custom openWakeWord model or another local detector for "Computer."
+This is still a scaffold. The current recommended demo path is the refined Whisper-poll loop because it supports both `Jarvis` and `Computer`. It gives a short wake acknowledgement, gives a quick neutral acknowledgement after command submission, uses a more specific "Let me take a look" acknowledgement for accessibility narration, and speaks again for unsupported, failed, approval-gated, spoken-result, or safely narrated completed actions. Speech output is serialized so the quick acknowledgement and final narration do not overlap. If a task is still running after the short foreground wait, the voice agent keeps a background watcher alive so delayed accessibility responses such as "explain the active window" are still spoken when the task completes. The next privacy step is local NVIDIA Speech NIM/Riva ASR and TTS when those services are available, plus either a custom openWakeWord model or another local detector for "Computer."
+
+The planner is model-first, but common speech variants are normalized for the active demo tools. Phrases such as `pull up`, `bring up`, `take me to`, `put on`, `look up`, `write in Notepad`, `prepare an email`, `show me Canvas homework`, `help me see this page`, and `make me code` route to the same tools as their more literal equivalents.
+
+For a more human-sounding demo voice, keep the existing temporary OpenAI dev key in `.env` and set:
+
+```bash
+VOICE_AGENT_TTS_MODE=openai
+VOICE_AGENT_TTS_MODEL=gpt-4o-mini-tts
+VOICE_AGENT_TTS_VOICE=marin
+VOICE_AGENT_TTS_RESPONSE_FORMAT=mp3
+VOICE_AGENT_TTS_INSTRUCTIONS=Speak like a calm, warm PC accessibility assistant. Use natural pacing and clear pronunciation.
+```
+
+This is not the final private voice architecture; it is temporary demo scaffolding like the current Whisper transcription path. The app should disclose that the voice is AI-generated when used with real users.
 
 ### Real Windows desktop tool mode
 
-For the first real desktop-control slice, set `TOOL_MODE=windows` and run the tool server from an interactive Windows terminal. The tool server currently allowlists `notepad`, `calculator`/`calc`, `paint`/`mspaint`, and `discord` for `app_launch`, supports `keyboard_type` through clipboard paste, supports Discord message sending to the currently active conversation, supports `browser_open` through the default Windows browser, supports Canvas course opening through configured aliases or an optional Canvas API token, has screenshot-first mouse clicking for YouTube video selection with a ratio-click fallback, and now has a separate Chrome-first Playwright browser automation path for DOM-aware multi-step browser tasks.
+For the first real desktop-control slice, set `TOOL_MODE=windows` and run the tool server from an interactive Windows terminal. The tool server currently allowlists `notepad`, `calculator`/`calc`, `paint`/`mspaint`, and `discord` for `app_launch`, supports `keyboard_type` through clipboard paste, supports opening a fresh VS Code window and inserting generated code through `vscode_paste_code`, supports Discord message sending to the currently active conversation, supports Gmail draft creation through the primary `email_create_draft` Gmail API path, keeps browser-based Gmail open/search/compose tools as a fallback path, supports `browser_open` through the default Windows browser, supports accessibility screen narration through `accessibility_describe_screen`, supports Canvas course opening and Canvas assignment lookup through configured aliases or an optional Canvas API token, supports local todo note creation through `sticky_note_create`, and has screenshot-first mouse clicking for YouTube video selection with a ratio-click fallback. It also has a separate Chrome-first Playwright browser automation path for DOM-aware multi-step browser tasks.
 
 Browser automation setup for `TOOL_MODE=windows`:
 
@@ -209,6 +232,28 @@ Browser test prompts:
 
 `To Canvas.`
 
+Accessibility narration test prompts:
+
+`Computer, what am I looking at?`
+
+`Computer, explain this screen.`
+
+`Computer, read the active window.`
+
+`Computer, explain the active window.`
+
+`Computer, describe my active window.`
+
+`Computer, what did you just do?`
+
+`Computer, what did the AI just do?`
+
+These commands route through the normal model-first tool planner, then gather structured desktop context with `accessibility_describe_screen`, ask the model to produce a spoken-friendly explanation, and return that explanation through `notify_user` so the voice agent can read it aloud. A conservative fallback still catches common screen/window phrasing if the planner is unavailable. The first Windows version reports foreground-window, visible-window, focused-element, and screenshot metadata; deeper Windows UI Automation element trees are the next accessibility step.
+
+If the local model returns an empty, clipped, or markdown-fragment accessibility narration, the coordinator falls back to a plain spoken summary built from the structured window context so the voice response stays useful during demos. The fallback avoids internal implementation caveats and speaks in user-facing terms.
+
+Successful user-visible actions now also store a short safe narration under `voice_response_text`, so the local voice agent can confirm what actually happened after completion without echoing private dictated content. Examples include opening websites, opening Canvas courses, sending a Discord message to the active conversation, typing into Notepad, clicking a YouTube video result, inserting generated code into VS Code, creating a Gmail draft, creating a Canvas TODO note, and applying an approved file plan.
+
 Gmail/browser-agent test prompts:
 
 `Open Gmail.`
@@ -217,13 +262,34 @@ Gmail/browser-agent test prompts:
 
 `Draft an email to alice@example.com subject Running late saying "I am running five minutes late."`
 
-The Gmail path uses the managed Playwright Chrome session. It can open Gmail, search Gmail, and compose a draft. It intentionally does not send email yet; sending remains a manual review step until the approval flow is hardened for irreversible external actions.
+The primary email compose path uses `email_create_draft` and the Gmail API. The managed Playwright Chrome Gmail tools can open Gmail, search Gmail, and compose a draft as a browser-session fallback. Automated send remains a manual review/approval concern and should not be used as the default demo path.
 
 Canvas course test prompt:
 
 `Open Canvas and navigate to my intro to AI course.`
 
 For deterministic Canvas course routing, set either `CANVAS_INTRO_TO_AI_URL=https://canvas.oregonstate.edu/courses/<course-id>` or a semicolon-separated alias map such as `CANVAS_COURSE_ALIASES=intro to ai=https://canvas.oregonstate.edu/courses/<course-id>`. Optional `CANVAS_API_TOKEN` lets the tool list active Canvas courses through `/api/v1/courses` and fuzzy-match the requested course name.
+
+Canvas assignment todo test prompt:
+
+`Open Canvas, find assignments due within the next week, and create a TODO sticky note with links and due dates.`
+
+This workflow uses the Canvas API through `CANVAS_API_TOKEN` to list upcoming assignments, opens Canvas in the default browser, then creates a local Sticky Notes note sorted by earliest due date. If Sticky Notes is unavailable or cannot be focused, the Windows backend falls back to a fresh Notepad note.
+
+Gmail draft test prompt:
+
+`Computer, compose an email to alex@example.com with subject Hackathon update saying I finished the demo slice.`
+
+NemotronOS creates a Gmail draft through the Gmail API and then opens Gmail Drafts in the default browser so the user can inspect it. It does not send email. Set these values in `.env`:
+
+```bash
+GMAIL_CLIENT_SECRETS_PATH=C:/Users/Raed/Downloads/client_secret_...apps.googleusercontent.com.json
+GMAIL_TOKEN_PATH=.secrets/gmail_token.json
+```
+
+The first draft request opens a Google OAuth consent page and stores the resulting local token at `GMAIL_TOKEN_PATH`. `.secrets/` is gitignored. The OAuth scope is draft/compose only: `https://www.googleapis.com/auth/gmail.compose`.
+
+Use a full email address for the recipient. A domain like `example.com` is treated as invalid; use something shaped like `alex@example.com`.
 
 `Open YouTube and play a random video.`
 
@@ -247,6 +313,14 @@ Discord test prompt:
 
 This sends to the currently active Discord conversation. It does not select servers or channels, so put Discord on the target chat first.
 
+Code generation test prompt:
+
+`Code me a Python script that prints the Fibonacci sequence.`
+
+`Code me a tic-tac-toe game written in Swift.`
+
+This asks the model to generate a single-file code snippet, opens a fresh VS Code window, and inserts the generated code without saving or running it. Coding requests can override an unsupported planner response when the intent is clear, so voice commands like "code me a game" still route to VS Code even if the local model initially picks `notify_user`. The tool server uses `VSCODE_COMMAND`, defaulting to `code`, so install the VS Code shell command or set `VSCODE_COMMAND` to the VS Code CLI path if Windows cannot find it.
+
 If the tool server is launched from a hidden or non-interactive service context, Windows may create a process without a focusable desktop window. Run it from the signed-in desktop session for real UI interaction tests.
 
 ## API endpoints
@@ -268,8 +342,7 @@ If the tool server is launched from a hidden or non-interactive service context,
 - `GET /health`
 - `POST /demo/reset-downloads`
 
-Currently registered tool-server tools include `app_launch`, `keyboard_type`, `discord_send_message`, `mouse_click`, `browser_open`, `canvas_open_course`, `youtube_open`, `youtube_click_video`, `fs_plan_changes`, `fs_apply_changes`, `screen_capture`, `shell_run`, and `notify_user`.
-Managed browser automation tools are also registered: `browser_session_ensure`, `browser_navigate`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_select_option`, and `browser_press`.
+Currently registered tool-server tools include `app_launch`, `keyboard_type`, `accessibility_describe_screen`, `sticky_note_create`, `vscode_paste_code`, `discord_send_message`, `email_create_draft`, `mouse_click`, `browser_open`, `browser_session_ensure`, `browser_navigate`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_select_option`, `browser_press`, `canvas_open_course`, `canvas_list_assignments_due_soon`, `youtube_open`, `youtube_click_video`, `fs_plan_changes`, `fs_apply_changes`, `screen_capture`, `shell_run`, and `notify_user`.
 
 ## Notes
 

@@ -127,7 +127,7 @@ class BrowserAutomationService(ABC):
         body: str,
     ) -> dict[str, Any]:
         raise NotImplementedError
-    
+
     @abstractmethod
     def gmail_send_current_draft(self) -> dict[str, Any]:
         raise NotImplementedError
@@ -287,14 +287,14 @@ class SimpleBrowserOpenService(BrowserAutomationService):
                 "sent": False,
             },
         }
-        
+
     def gmail_send_current_draft(self) -> dict[str, Any]:
         import pyautogui
         import time
 
         # Give Gmail/browser focus a moment.
         time.sleep(0.5)
-        
+
         # Gmail commonly supports Ctrl+Enter to send from compose.
         pyautogui.hotkey("ctrl", "enter")
 
@@ -313,8 +313,8 @@ class SimpleBrowserOpenService(BrowserAutomationService):
                 "confirmation_required": True,
             },
         }
-                
-        
+
+
 class DisabledBrowserAutomationService(BrowserAutomationService):
     def ensure_session(self, start_url: str | None = None) -> dict[str, Any]:
         del start_url
@@ -384,7 +384,7 @@ class DisabledBrowserAutomationService(BrowserAutomationService):
         raise ValueError(
             "Browser automation is disabled. Set BROWSER_AUTOMATION_ENABLED=true on the Windows tool server."
         )
-    
+
     def gmail_send_current_draft(self) -> dict[str, Any]:
         raise ValueError(
             "Browser automation is disabled. Set BROWSER_AUTOMATION_ENABLED=true on the Windows tool server."

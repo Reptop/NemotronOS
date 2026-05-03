@@ -17,6 +17,14 @@ class NotepadFollowUpTests(unittest.TestCase):
             extract_notepad_text("Open notepad and type in hello from windows."),
             "hello from windows.",
         )
+        self.assertEqual(
+            extract_notepad_text("Open notepad and write in hello from windows."),
+            "hello from windows.",
+        )
+        self.assertEqual(
+            extract_notepad_text("Put this in Notepad hello from windows."),
+            "hello from windows.",
+        )
 
     def test_returns_none_when_no_literal_text_is_present(self) -> None:
         self.assertIsNone(extract_notepad_text("Open notepad and type."))

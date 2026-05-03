@@ -1,4 +1,5 @@
 .env
+.secrets/
 .deps/
 .tmp/
 .tmp_tests/

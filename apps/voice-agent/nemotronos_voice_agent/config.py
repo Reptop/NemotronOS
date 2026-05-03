@@ -31,10 +31,18 @@ class VoiceAgentSettings:
     request_timeout_seconds: float
     tts_mode: str
     tts_voice: str
+    tts_model: str
+    tts_instructions: str
+    tts_response_format: str
+    tts_speed: float
+    openai_api_key: str
+    openai_base_url: str
     acknowledgement: str
     submitted_acknowledgement: str
+    accessibility_acknowledgement: str
     listening_acknowledgement: str
     outcome_wait_seconds: float
+    final_outcome_wait_seconds: float
 
 
 def get_settings() -> VoiceAgentSettings:
@@ -91,10 +99,29 @@ def get_settings() -> VoiceAgentSettings:
         request_timeout_seconds=float(os.getenv("REQUEST_TIMEOUT_SECONDS", "30")),
         tts_mode=os.getenv("VOICE_AGENT_TTS_MODE", "windows_sapi"),
         tts_voice=os.getenv("VOICE_AGENT_TTS_VOICE", ""),
+        tts_model=os.getenv("VOICE_AGENT_TTS_MODEL", "gpt-4o-mini-tts"),
+        tts_instructions=os.getenv(
+            "VOICE_AGENT_TTS_INSTRUCTIONS",
+            (
+                "Speak like a calm, warm PC accessibility assistant. "
+                "Use natural pacing, clear pronunciation, and a grounded conversational tone."
+            ),
+        ),
+        tts_response_format=os.getenv("VOICE_AGENT_TTS_RESPONSE_FORMAT", "mp3"),
+        tts_speed=float(os.getenv("VOICE_AGENT_TTS_SPEED", "1.0")),
+        openai_api_key=os.getenv("OPENAI_API_KEY", ""),
+        openai_base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
         acknowledgement=os.getenv("VOICE_AGENT_ACK", "Of course, here you go."),
         submitted_acknowledgement=os.getenv("VOICE_AGENT_SUBMITTED_ACK", "Got it."),
+        accessibility_acknowledgement=os.getenv(
+            "VOICE_AGENT_ACCESSIBILITY_ACK",
+            "Let me take a look.",
+        ),
         listening_acknowledgement=os.getenv("VOICE_AGENT_LISTENING_ACK", "I'm listening."),
         outcome_wait_seconds=float(os.getenv("VOICE_AGENT_OUTCOME_WAIT_SECONDS", "2.5")),
+        final_outcome_wait_seconds=float(
+            os.getenv("VOICE_AGENT_FINAL_OUTCOME_WAIT_SECONDS", "25")
+        ),
     )
 
 

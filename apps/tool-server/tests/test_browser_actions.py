@@ -59,6 +59,7 @@ class BrowserActionTests(unittest.TestCase):
             canvas_base_url="https://canvas.oregonstate.edu",
             canvas_api_token="",
             canvas_course_aliases={},
+            vscode_command="code",
         )
 
         service = build_browser_automation_service(settings)

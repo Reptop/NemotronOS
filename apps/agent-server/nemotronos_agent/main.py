@@ -20,6 +20,7 @@ from .worker import AgentWorker
 
 
 WAKE_WORDS = ("jarvis", "computer")
+WAKE_COMMAND_SEPARATOR_CHARS = " \t\n\r,.:;-?!\"'()[]{}"
 
 
 class CreateTaskRequest(BaseModel):
@@ -82,8 +83,8 @@ def extract_wake_command(transcript: str) -> str | None:
         if before.isalnum() or after.isalnum():
             continue
 
-        command = normalized_transcript[after_index:].lstrip(" \t\n\r,.:;-")
-        if command:
+        command = normalized_transcript[after_index:].lstrip(WAKE_COMMAND_SEPARATOR_CHARS)
+        if command.strip(WAKE_COMMAND_SEPARATOR_CHARS):
             return command
     return None
 

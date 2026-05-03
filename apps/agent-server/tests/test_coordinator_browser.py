@@ -180,6 +180,14 @@ class CoordinatorBrowserTests(unittest.TestCase):
             [call[0] for call in worker.calls],
             ["browser_session_ensure", "browser_click", "notify_user"],
         )
+        self.assertEqual(
+            completed_task.memory["voice_response_text"],
+            "Browser task complete.",
+        )
+        self.assertEqual(
+            completed_task.result["voice_response_text"],
+            "Browser task complete.",
+        )
 
     def test_gmail_draft_waits_for_approval_before_composing(self) -> None:
         task_store = TaskStore()
