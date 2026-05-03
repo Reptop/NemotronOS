@@ -5,3 +5,17 @@
 logs/
 node_modules/
 *.pyc
+<<<<<<< Updated upstream
+=======
+__pycache__/
+dist/
+build/
+*.egg-info/
+.idea/
+.vscode/
+*.log
+.DS_Store
+coverage/
+*.cover
+
+>>>>>>> Stashed changes
