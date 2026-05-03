@@ -50,13 +50,14 @@ The script respects `.env` plus any shell overrides, so you can switch model pro
 MODEL_MODE=openai_compatible MODEL_PROVIDER=ollama python3 scripts/run_local_stack.py
 ```
 
-If you want the agent server and dashboard in WSL but the real Windows desktop tool server in an interactive PowerShell window, use:
+If you want the agent server and dashboard in WSL but the real Windows desktop tool server in an interactive PowerShell window, use two scripts:
 
 ```bash
-python3 scripts/run_hybrid_stack.py
+python3 scripts/run_windows_tool_server.py
+python3 scripts/run_wsl_agent_dashboard.py
 ```
 
-The hybrid launcher starts the Windows tool server in a separate PowerShell window, then runs the WSL agent server and dashboard locally in the current terminal. It assumes the Windows tool server environment lives at `.venv-win\Scripts\python.exe` under the same repo on the Windows side. Override that with `WINDOWS_TOOL_PYTHON` if needed.
+The Windows launcher opens the tool server in a separate PowerShell window. The WSL launcher starts the agent server and dashboard in the current terminal. The Windows launcher assumes the tool-server environment lives at `.venv-win\Scripts\python.exe` under the same repo on the Windows side. Override that with `WINDOWS_TOOL_PYTHON` if needed.
 
 ### Manual startup
 

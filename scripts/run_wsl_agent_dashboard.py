@@ -56,60 +56,6 @@ def _ensure_dashboard_dependencies() -> None:
     _run_checked(["npm", "install"], cwd=DASHBOARD_DIR)
 
 
-def _wslpath_windows(path: Path) -> str:
-    result = subprocess.run(
-        ["wslpath", "-w", str(path)],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return result.stdout.strip()
-
-
-def _powershell_literal(value: str) -> str:
-    return value.replace("'", "''")
-
-
-def _windows_tool_python(repo_root_windows: str) -> str:
-    configured = os.getenv("WINDOWS_TOOL_PYTHON", "").strip()
-    if configured:
-        return configured
-    return f"{repo_root_windows}\\.venv-win\\Scripts\\python.exe"
-
-
-def _launch_windows_tool_server() -> None:
-    repo_root_windows = _wslpath_windows(REPO_ROOT)
-    tool_python = _windows_tool_python(repo_root_windows)
-    tool_port = os.getenv("TOOL_SERVER_PORT", "5050")
-
-    tool_command = (
-        f"Set-Location -LiteralPath '{_powershell_literal(repo_root_windows)}'; "
-        f"& '{_powershell_literal(tool_python)}' -m uvicorn "
-        "nemotronos_tools.main:app "
-        "--app-dir apps/tool-server "
-        "--reload "
-        f"--port {tool_port} "
-        "--env-file .env"
-    )
-    bootstrap = (
-        "$host.UI.RawUI.WindowTitle = 'NemotronOS Tool Server'; "
-        f"$cmd = '{_powershell_literal(tool_command)}'; "
-        "Start-Process powershell "
-        "-ArgumentList @('-NoExit','-ExecutionPolicy','Bypass','-Command',$cmd)"
-    )
-
-    command = [
-        "powershell.exe",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        bootstrap,
-    ]
-    print("+ launching Windows PowerShell tool server window", flush=True)
-    subprocess.run(command, check=True)
-
-
 def _start_process(command: list[str], cwd: Path | None = None) -> subprocess.Popen[bytes]:
     print(f"+ {' '.join(command)}", flush=True)
     env = os.environ.copy()
@@ -135,12 +81,11 @@ def _stop_processes(processes: list[tuple[str, subprocess.Popen[bytes]]]) -> Non
 
 def main() -> int:
     if "WSL_DISTRO_NAME" not in os.environ:
-        raise SystemExit("run_hybrid_stack.py is intended to be run from WSL.")
+        raise SystemExit("run_wsl_agent_dashboard.py is intended to be run from WSL.")
 
     _ensure_env_file()
     venv_python = _ensure_wsl_environment()
     _ensure_dashboard_dependencies()
-    _launch_windows_tool_server()
 
     processes: list[tuple[str, subprocess.Popen[bytes]]] = []
     try:
@@ -172,11 +117,7 @@ def main() -> int:
         )
 
         print(
-            "Hybrid stack running. Agent and dashboard are in WSL; tool server is in a Windows PowerShell window.",
-            flush=True,
-        )
-        print(
-            "Stop the WSL processes with Ctrl+C here. Close the Windows PowerShell window separately when finished.",
+            "WSL services running. Start the Windows tool server separately with scripts/run_windows_tool_server.py.",
             flush=True,
         )
 
@@ -188,7 +129,7 @@ def main() -> int:
                 raise RuntimeError(f"{name} exited early with code {return_code}")
             time.sleep(1)
     except KeyboardInterrupt:
-        print("\nStopping WSL processes...", flush=True)
+        print("\nStopping WSL services...", flush=True)
         return 0
     finally:
         _stop_processes(processes)
