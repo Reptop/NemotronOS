@@ -4,7 +4,11 @@ Version: 0.1.0
 Summary: Mock and future Windows tool server for NemotronOS
 Requires-Python: >=3.11
 Requires-Dist: fastapi>=0.110.0
+Requires-Dist: google-api-python-client>=2.130.0
+Requires-Dist: google-auth-oauthlib>=1.2.0
 Requires-Dist: pillow>=10.3.0
+Requires-Dist: playwright>=1.52.0
+Requires-Dist: pyautogui>=0.9.54
 Requires-Dist: pydantic>=2.7.0
 Requires-Dist: python-dotenv>=1.0.1
 Requires-Dist: uvicorn>=0.29.0

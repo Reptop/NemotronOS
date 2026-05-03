@@ -15,6 +15,10 @@ from .tools.browser_actions import (
     browser_session_ensure,
     browser_snapshot,
     browser_type,
+    gmail_compose_draft,
+    gmail_open,
+    gmail_search,
+    gmail_send_current_draft,
 )
 from .tools.browser_automation import build_browser_automation_service
 from .tools.canvas import canvas_list_assignments_due_soon
@@ -145,6 +149,22 @@ def build_tool_registry(settings: ToolServerSettings) -> ToolRegistry:
     registry.register(
         "browser_press",
         lambda arguments: browser_press(arguments, browser_service),
+    )
+    registry.register(
+        "gmail_open",
+        lambda arguments: gmail_open(arguments, browser_service),
+    )
+    registry.register(
+        "gmail_search",
+        lambda arguments: gmail_search(arguments, browser_service),
+    )
+    registry.register(
+        "gmail_compose_draft",
+        lambda arguments: gmail_compose_draft(arguments, browser_service),
+    )
+    registry.register(
+        "gmail_send_current_draft",
+        lambda arguments: gmail_send_current_draft(arguments, browser_service),
     )
     registry.register(
         "canvas_open_course",

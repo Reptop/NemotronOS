@@ -200,7 +200,25 @@ This is not the final private voice architecture; it is temporary demo scaffoldi
 
 ### Real Windows desktop tool mode
 
-For the first real desktop-control slice, set `TOOL_MODE=windows` and run the tool server from an interactive Windows terminal. The tool server currently allowlists `notepad`, `calculator`/`calc`, `paint`/`mspaint`, and `discord` for `app_launch`, supports `keyboard_type` through clipboard paste, supports opening a fresh VS Code window and inserting generated code through `vscode_paste_code`, supports Discord message sending to the currently active conversation, supports Gmail draft creation through `email_create_draft`, supports `browser_open` through the default Windows browser, supports accessibility screen narration through `accessibility_describe_screen`, supports Canvas course opening and Canvas assignment lookup through configured aliases or an optional Canvas API token, supports local todo note creation through `sticky_note_create`, and has screenshot-first mouse clicking for YouTube video selection with a ratio-click fallback.
+For the first real desktop-control slice, set `TOOL_MODE=windows` and run the tool server from an interactive Windows terminal. The tool server currently allowlists `notepad`, `calculator`/`calc`, `paint`/`mspaint`, and `discord` for `app_launch`, supports `keyboard_type` through clipboard paste, supports opening a fresh VS Code window and inserting generated code through `vscode_paste_code`, supports Discord message sending to the currently active conversation, supports Gmail draft creation through the primary `email_create_draft` Gmail API path, keeps browser-based Gmail open/search/compose tools as a fallback path, supports `browser_open` through the default Windows browser, supports accessibility screen narration through `accessibility_describe_screen`, supports Canvas course opening and Canvas assignment lookup through configured aliases or an optional Canvas API token, supports local todo note creation through `sticky_note_create`, and has screenshot-first mouse clicking for YouTube video selection with a ratio-click fallback. It also has a separate Chrome-first Playwright browser automation path for DOM-aware multi-step browser tasks.
+
+Browser automation setup for `TOOL_MODE=windows`:
+
+```bash
+BROWSER_AUTOMATION_ENABLED=true
+BROWSER_USER_DATA_DIR="C:\Users\<you>\AppData\Local\Google\Chrome\User Data"
+BROWSER_PROFILE_DIR=Default
+BROWSER_HEADLESS=false
+BROWSER_DEFAULT_TIMEOUT_MS=10000
+```
+
+Optional override:
+
+```bash
+BROWSER_CHROME_EXECUTABLE="C:\Program Files\Google\Chrome\Application\chrome.exe"
+```
+
+The managed browser session is separate from arbitrary already-open browser windows or tabs. Use a dedicated persistent Chrome profile for NemotronOS automation so logged-in state is predictable and profile locking is less likely.
 
 First manual test prompt:
 
@@ -235,6 +253,16 @@ These commands route through the normal model-first tool planner, then gather st
 If the local model returns an empty, clipped, or markdown-fragment accessibility narration, the coordinator falls back to a plain spoken summary built from the structured window context so the voice response stays useful during demos. The fallback avoids internal implementation caveats and speaks in user-facing terms.
 
 Successful user-visible actions now also store a short safe narration under `voice_response_text`, so the local voice agent can confirm what actually happened after completion without echoing private dictated content. Examples include opening websites, opening Canvas courses, sending a Discord message to the active conversation, typing into Notepad, clicking a YouTube video result, inserting generated code into VS Code, creating a Gmail draft, creating a Canvas TODO note, and applying an approved file plan.
+
+Gmail/browser-agent test prompts:
+
+`Open Gmail.`
+
+`Search my Gmail for from Alice invoices.`
+
+`Draft an email to alice@example.com subject Running late saying "I am running five minutes late."`
+
+The primary email compose path uses `email_create_draft` and the Gmail API. The managed Playwright Chrome Gmail tools can open Gmail, search Gmail, and compose a draft as a browser-session fallback. Automated send remains a manual review/approval concern and should not be used as the default demo path.
 
 Canvas course test prompt:
 

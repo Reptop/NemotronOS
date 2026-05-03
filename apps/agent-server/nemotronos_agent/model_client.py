@@ -106,6 +106,10 @@ class MockModelClient(ModelClient):
                 rationale="Create a Gmail draft without sending it.",
             )
 
+        gmail_call = _extract_gmail_action(goal)
+        if gmail_call:
+            return gmail_call
+
         discord_arguments = _extract_discord_message_arguments(goal)
         if discord_arguments:
             return PlannedToolCall(
@@ -545,6 +549,13 @@ class OpenAICompatibleModelClient(ModelClient):
             "If the user asks for Canvas course/class navigation with wording like open, "
             "show, bring up, pull up, take me to, or go to, call canvas_open_course with "
             "the natural course name in course_query. "
+            "If the user asks to open or search Gmail, use gmail_open or gmail_search. "
+            "If the user asks to write, compose, draft, create, prepare, or send an email, "
+            "mail, e-mail, Gmail, or note to an email address, "
+            "call email_create_draft with to, subject when present, and body; never send it. "
+            "Use gmail_compose_draft only as a browser-session backup for composing a draft, "
+            "and never call gmail_send_current_draft unless a separate explicit approval flow "
+            "has requested sending the current draft. Never send email with generic browser clicks. "
             "If the user asks for Canvas assignments, homework, to-do items, or due dates, "
             "call canvas_list_assignments_due_soon with days_ahead; use 7 for 'next week'. "
             "If the user asks what is on screen, what they are looking at, to describe, "
@@ -558,9 +569,6 @@ class OpenAICompatibleModelClient(ModelClient):
             "If the user asks to send/post/type/write/paste/reply/say a message to Discord "
             "or the active chat, "
             "call discord_send_message with only the message body in text. "
-            "If the user asks to write, compose, draft, create, prepare, or send an email, "
-            "mail, e-mail, Gmail, or note to an email address, "
-            "call email_create_draft with to, subject when present, and body; never send it. "
             "If the user asks you to write, code, build, make, create, generate, prototype, "
             "implement, or whip up software, scripts, functions, components, games, mobile apps, "
             "websites, web pages, or code snippets, call "
@@ -595,6 +603,11 @@ class OpenAICompatibleModelClient(ModelClient):
             "go to/take me to/navigate to/visit/load, play/watch/find/search/look up, "
             "write/type/enter/paste, compose/draft/prepare, describe/read/explain, "
             "make/build/create/generate/code/prototype. "
+            "For Gmail open/search tasks, use gmail_open or gmail_search. "
+            "For email, e-mail, mail, or Gmail compose/draft/prepare requests, use "
+            "email_create_draft and include to, subject when present, and body; do not send email. "
+            "Use gmail_compose_draft only as a browser-session backup for composing a draft. "
+            "Never send email with generic browser clicks. "
             "For YouTube searches, use youtube_open with action='search', query, "
             "and prefer_video_results=true. "
             "For random, recommended, any, or surprise YouTube video requests, use youtube_open "
@@ -928,6 +941,23 @@ class OpenAICompatibleModelClient(ModelClient):
                 "include_screenshot": bool(arguments.get("include_screenshot", True)),
                 "max_windows": int(arguments.get("max_windows") or 12),
             }
+        if tool_name == "gmail_compose_draft":
+            return {
+                **arguments,
+                "to": str(arguments.get("to") or "").strip(),
+                "subject": str(arguments.get("subject") or "").strip(),
+                "body": str(arguments.get("body") or "").strip(),
+            }
+        if tool_name == "gmail_search":
+            return {
+                **arguments,
+                "query": str(arguments.get("query") or "").strip(),
+            }
+        if tool_name == "gmail_open":
+            return {
+                **arguments,
+                "view": str(arguments.get("view") or "inbox").strip().lower() or "inbox",
+            }
         return arguments
 
     def _fallback_first_action(self, goal: str) -> PlannedToolCall:
@@ -945,6 +975,18 @@ class OpenAICompatibleModelClient(ModelClient):
                 name="email_create_draft",
                 arguments=email_arguments,
                 rationale="Fallback parser routed an email draft request.",
+            )
+
+        gmail_call = _extract_gmail_action(goal)
+        if gmail_call:
+            return gmail_call
+
+        browser_agent_start_url = _extract_browser_agent_start_url(goal)
+        if browser_agent_start_url:
+            return PlannedToolCall(
+                name="browser_session_ensure",
+                arguments={"start_url": browser_agent_start_url},
+                rationale="Fallback parser routed a general browser automation request.",
             )
 
         discord_arguments = _extract_discord_message_arguments(goal)
@@ -1043,6 +1085,143 @@ def _extract_notepad_launch_arguments(goal: str) -> dict[str, Any] | None:
     ):
         return None
     return {"app_name": "notepad"}
+
+
+def _extract_gmail_action(goal: str) -> PlannedToolCall | None:
+    lowered_goal = goal.lower()
+    if not _looks_like_email_goal(lowered_goal):
+        return None
+
+    compose_arguments = _extract_gmail_compose_arguments(goal)
+    if compose_arguments:
+        return PlannedToolCall(
+            name="gmail_compose_draft",
+            arguments=compose_arguments,
+            rationale="Fallback parser routed the email request to Gmail draft composition.",
+        )
+
+    search_query = _extract_gmail_search_query(goal)
+    if search_query:
+        return PlannedToolCall(
+            name="gmail_search",
+            arguments={"query": search_query},
+            rationale="Fallback parser routed the email request to Gmail search.",
+        )
+
+    view = "inbox"
+    if re.search(r"\b(sent|sent mail)\b", lowered_goal):
+        view = "sent"
+    elif re.search(r"\b(draft|drafts)\b", lowered_goal):
+        view = "drafts"
+    elif "starred" in lowered_goal:
+        view = "starred"
+    elif re.search(r"\ball mail\b", lowered_goal):
+        view = "all"
+
+    return PlannedToolCall(
+        name="gmail_open",
+        arguments={"view": view},
+        rationale="Fallback parser routed the email request to Gmail.",
+    )
+
+
+def _looks_like_email_goal(lowered_goal: str) -> bool:
+    return bool(re.search(r"\b(gmail|e-mail|email|mail|inbox)\b", lowered_goal))
+
+
+def _extract_gmail_compose_arguments(goal: str) -> dict[str, Any] | None:
+    lowered_goal = goal.lower()
+    if not re.search(r"\b(compose|draft|write|send|email|e-mail|mail)\b", lowered_goal):
+        return None
+    if not re.search(r"\b(to|for)\b", lowered_goal) and not re.search(
+        r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b",
+        goal,
+        flags=re.IGNORECASE,
+    ):
+        return None
+
+    recipient = _extract_email_recipient(goal)
+    body = _extract_email_body(goal)
+    subject = _extract_email_subject(goal)
+    if not recipient or not body:
+        return None
+
+    return {
+        "to": recipient,
+        "subject": subject or "",
+        "body": body,
+    }
+
+
+def _extract_email_recipient(goal: str) -> str | None:
+    email_match = re.search(
+        r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b",
+        goal,
+        flags=re.IGNORECASE,
+    )
+    if email_match:
+        return email_match.group(0).strip()
+
+    match = re.search(
+        r"\b(?:to|for)\s+(.+?)(?:\s+(?:with\s+)?subject\b|\s+(?:saying|that\s+says|body|message)\b|$)",
+        goal,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return None
+    recipient = match.group(1).strip(" \t\n\r.,;:\"'")
+    recipient = re.sub(r"^(?:my|the)\s+", "", recipient, flags=re.IGNORECASE)
+    return recipient or None
+
+
+def _extract_email_subject(goal: str) -> str | None:
+    match = re.search(
+        r"\bsubject\s*(?:is|of|:)?\s*(.+?)(?:\s+(?:saying|that\s+says|body|message)\b|$)",
+        goal,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return None
+    subject = match.group(1).strip(" \t\n\r.,;:\"'")
+    return subject or None
+
+
+def _extract_email_body(goal: str) -> str | None:
+    quoted_match = re.search(r'"([^"\r\n]+)"', goal)
+    if quoted_match:
+        body = quoted_match.group(1).strip()
+        if body:
+            return body
+
+    patterns = (
+        r"\b(?:saying|that\s+says)\s*[,;:-]?\s*(.+)$",
+        r"\b(?:body|message)\s*(?:is|:)?\s*(.+)$",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, goal, flags=re.IGNORECASE | re.DOTALL)
+        if not match:
+            continue
+        body = match.group(1).strip(" \t\n\r.,;:\"'")
+        if body:
+            return body
+    return None
+
+
+def _extract_gmail_search_query(goal: str) -> str | None:
+    patterns = (
+        r"\b(?:search|find|look\s+for)\s+(?:my\s+)?(?:gmail|email|e-mail|mail|inbox)\s+(?:for\s+)?(.+)$",
+        r"\b(?:search|find|look\s+for)\s+(.+?)\s+(?:in|on)\s+(?:gmail|email|e-mail|mail|my\s+inbox)\b",
+        r"\b(?:gmail|email|e-mail|mail|inbox)\s+(?:search|find)\s+(?:for\s+)?(.+)$",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, goal, flags=re.IGNORECASE | re.DOTALL)
+        if not match:
+            continue
+        query = match.group(1).strip(" \t\n\r.,;:\"'")
+        query = re.sub(r"^(?:for|about)\s+", "", query, flags=re.IGNORECASE)
+        if query:
+            return query
+    return None
 
 
 def _extract_browser_target(goal: str) -> str | None:

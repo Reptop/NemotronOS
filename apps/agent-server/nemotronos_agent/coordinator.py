@@ -28,6 +28,10 @@ BROWSER_AGENT_MUTATION_TOOLS = {
     "browser_press",
 }
 BROWSER_AGENT_STEP_BUDGET = 8
+EMAIL_AGENT_MUTATION_TOOLS = {
+    "gmail_compose_draft",
+    "gmail_send_current_draft",
+}
 
 
 class AgentCoordinator:
@@ -120,6 +124,16 @@ class AgentCoordinator:
                         result,
                         planned_arguments,
                     ),
+                )
+                return
+            if planned_call.name in EMAIL_AGENT_MUTATION_TOOLS:
+                self._queue_pending_tool_approval(
+                    task_id=task_id,
+                    tool_name=planned_call.name,
+                    arguments=planned_call.arguments,
+                    risk_level=planning_policy.risk_level,
+                    reason=planning_policy.reason,
+                    continue_after_approval=False,
                 )
                 return
 
@@ -284,6 +298,12 @@ class AgentCoordinator:
             task = self.task_store.get_task(task_id)
             if not task:
                 return
+            if (
+                pending_action.tool_name == "gmail_compose_draft"
+                and self._is_send_email_goal(task.goal)
+            ):
+                await self._queue_send_email_approval(task_id)
+                return
             if pending_action.continue_after_approval and pending_action.tool_name in BROWSER_AGENT_TOOLS:
                 await self._continue_browser_task(
                     task_id,
@@ -369,6 +389,48 @@ class AgentCoordinator:
     def _should_click_youtube_video(self, arguments: dict[str, Any]) -> bool:
         action = str(arguments.get("action", "")).strip().lower()
         return action in {"search", "specific", "video", "play", "watch", "random"}
+
+    def _is_send_email_goal(self, goal: str) -> bool:
+        return bool(
+            re.search(
+                r"\b(send|send it|send the email|email it|deliver)\b",
+                goal,
+                flags=re.IGNORECASE,
+            )
+        )
+
+    async def _queue_send_email_approval(self, task_id: str) -> None:
+        arguments: dict[str, Any] = {}
+        policy = self.policy_engine.classify("gmail_send_current_draft", arguments)
+
+        self.event_log.add_event(
+            "model_requested_tool",
+            task_id=task_id,
+            tool_name="gmail_send_current_draft",
+            arguments=arguments,
+            rationale="Send the Gmail draft after the user requested sending the email.",
+        )
+        self.event_log.add_event(
+            "policy_checked",
+            task_id=task_id,
+            tool_name="gmail_send_current_draft",
+            risk_level=policy.risk_level,
+            allowed=policy.allowed,
+            reason=policy.reason,
+        )
+
+        if not policy.allowed:
+            raise RuntimeError(policy.reason)
+
+        self._queue_pending_tool_approval(
+            task_id=task_id,
+            tool_name="gmail_send_current_draft",
+            arguments=arguments,
+            risk_level=policy.risk_level,
+            reason=policy.reason,
+            continue_after_approval=False,
+        )
+
 
     async def _click_youtube_video(
         self,
@@ -911,6 +973,16 @@ class AgentCoordinator:
                     risk_level=policy.risk_level,
                     reason=policy.reason,
                     continue_after_approval=True,
+                )
+                return
+            if planned_call.name in EMAIL_AGENT_MUTATION_TOOLS:
+                self._queue_pending_tool_approval(
+                    task_id=task_id,
+                    tool_name=planned_call.name,
+                    arguments=planned_call.arguments,
+                    risk_level=policy.risk_level,
+                    reason=policy.reason,
+                    continue_after_approval=False,
                 )
                 return
 

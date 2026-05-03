@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import webbrowser
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from threading import Lock
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from ..config import ToolServerSettings
 from .desktop_actions import normalize_browser_target
@@ -31,6 +32,15 @@ BROWSER_AGENT_TOOLS = {
     "browser_type",
     "browser_select_option",
     "browser_press",
+}
+
+GMAIL_BASE_URL = "https://mail.google.com/mail/u/0"
+GMAIL_VIEWS = {
+    "inbox": f"{GMAIL_BASE_URL}/#inbox",
+    "starred": f"{GMAIL_BASE_URL}/#starred",
+    "sent": f"{GMAIL_BASE_URL}/#sent",
+    "drafts": f"{GMAIL_BASE_URL}/#drafts",
+    "all": f"{GMAIL_BASE_URL}/#all",
 }
 
 
@@ -101,6 +111,209 @@ class BrowserAutomationService(ABC):
     def press(self, key: str) -> dict[str, Any]:
         raise NotImplementedError
 
+    @abstractmethod
+    def gmail_open(self, view: str = "inbox") -> dict[str, Any]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def gmail_search(self, query: str) -> dict[str, Any]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def gmail_compose_draft(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+    ) -> dict[str, Any]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def gmail_send_current_draft(self) -> dict[str, Any]:
+        raise NotImplementedError
+
+class SimpleBrowserOpenService(BrowserAutomationService):
+    """
+    Uses the OS default browser instead of Playwright. This avoids the
+    Playwright Sync API vs asyncio issue in the FastAPI tool server.
+    """
+
+    def ensure_session(self, start_url: str | None = None) -> dict[str, Any]:
+        url = normalize_browser_target(start_url or DEFAULT_START_URL)
+        webbrowser.open(url)
+        return {
+            "mode": "simple_browser_open",
+            "browser": "default",
+            "automation_enabled": True,
+            "url": url,
+            "title": "Browser opened",
+            "load_state": "opened",
+            "visible_text_excerpt": f"Opened {url} in the default browser.",
+            "targets": [],
+        }
+
+    def navigate(self, url: str) -> dict[str, Any]:
+        normalized_url = normalize_browser_target(url)
+        webbrowser.open(normalized_url)
+        return {
+            "mode": "simple_browser_open",
+            "browser": "default",
+            "automation_enabled": True,
+            "url": normalized_url,
+            "title": "Browser opened",
+            "load_state": "opened",
+            "visible_text_excerpt": f"Opened {normalized_url} in the default browser.",
+            "targets": [],
+        }
+
+    def snapshot(
+        self,
+        max_text_chars: int = DEFAULT_SNAPSHOT_TEXT_CHARS,
+        max_targets: int = DEFAULT_SNAPSHOT_TARGETS,
+    ) -> dict[str, Any]:
+        del max_text_chars, max_targets
+        return {
+            "mode": "simple_browser_open",
+            "browser": "default",
+            "automation_enabled": True,
+            "url": "",
+            "title": "Snapshot unavailable",
+            "load_state": "not_supported",
+            "visible_text_excerpt": "Simple browser mode can open URLs but does not inspect page contents.",
+            "targets": [],
+        }
+
+    def click(self, target_id: str) -> dict[str, Any]:
+        del target_id
+        raise ValueError("Simple browser mode does not support browser_click.")
+
+    def type_text(self, target_id: str, text: str, clear_first: bool = False) -> dict[str, Any]:
+        del target_id, text, clear_first
+        raise ValueError("Simple browser mode does not support browser_type.")
+
+    def select_option(self, target_id: str, value_or_label: str) -> dict[str, Any]:
+        del target_id, value_or_label
+        raise ValueError("Simple browser mode does not support browser_select_option.")
+
+    def press(self, key: str) -> dict[str, Any]:
+        del key
+        raise ValueError("Simple browser mode does not support browser_press.")
+
+    def gmail_open(self, view: str = "inbox") -> dict[str, Any]:
+        normalized_view = _normalize_gmail_view(view)
+        url = GMAIL_VIEWS[normalized_view]
+        webbrowser.open(url)
+        return {
+            "mode": "simple_browser_open",
+            "browser": "default",
+            "automation_enabled": True,
+            "url": url,
+            "title": f"Gmail {normalized_view.title()}",
+            "load_state": "opened",
+            "visible_text_excerpt": f"Opened Gmail {normalized_view} in the default browser.",
+            "targets": [],
+            "email": {
+                "provider": "gmail",
+                "action": "open",
+                "view": normalized_view,
+                "authenticated": None,
+            },
+        }
+
+    def gmail_search(self, query: str) -> dict[str, Any]:
+        cleaned_query = query.strip()
+        if not cleaned_query:
+            raise ValueError("gmail_search requires query.")
+        url = f"{GMAIL_BASE_URL}/#search/{quote(cleaned_query, safe='')}"
+        webbrowser.open(url)
+        return {
+            "mode": "simple_browser_open",
+            "browser": "default",
+            "automation_enabled": True,
+            "url": url,
+            "title": "Gmail Search",
+            "load_state": "opened",
+            "visible_text_excerpt": f"Opened Gmail search for {cleaned_query}.",
+            "targets": [],
+            "email": {
+                "provider": "gmail",
+                "action": "search",
+                "query": cleaned_query,
+                "authenticated": None,
+            },
+        }
+
+    def gmail_compose_draft(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+    ) -> dict[str, Any]:
+        cleaned_to = to.strip()
+        cleaned_subject = subject.strip()
+        cleaned_body = body.strip()
+
+        if not cleaned_to:
+            raise ValueError("gmail_compose_draft requires to.")
+        if not cleaned_body:
+            raise ValueError("gmail_compose_draft requires body.")
+
+        # This opens Gmail compose. It may not fully prefill all fields reliably,
+        # but it is enough as a safe fallback for the hackathon demo.
+        url = (
+            f"{GMAIL_BASE_URL}/?view=cm&fs=1"
+            f"&to={quote(cleaned_to)}"
+            f"&su={quote(cleaned_subject)}"
+            f"&body={quote(cleaned_body)}"
+        )
+        webbrowser.open(url)
+
+        return {
+            "mode": "simple_browser_open",
+            "browser": "default",
+            "automation_enabled": True,
+            "url": url,
+            "title": "Gmail Compose",
+            "load_state": "opened",
+            "visible_text_excerpt": f"Opened Gmail compose draft to {cleaned_to}.",
+            "targets": [],
+            "email": {
+                "provider": "gmail",
+                "action": "compose_draft",
+                "to": cleaned_to,
+                "subject": cleaned_subject,
+                "body_preview": cleaned_body[:160],
+                "authenticated": None,
+                "sent": False,
+            },
+        }
+
+    def gmail_send_current_draft(self) -> dict[str, Any]:
+        import pyautogui
+        import time
+
+        # Give Gmail/browser focus a moment.
+        time.sleep(0.5)
+
+        # Gmail commonly supports Ctrl+Enter to send from compose.
+        pyautogui.hotkey("ctrl", "enter")
+
+        return {
+            "mode": "simple_browser_open",
+            "browser": "default",
+            "automation_enabled": True,
+            "title": "Gmail Send",
+            "load_state": "sent_shortcut_attempted",
+            "visible_text_excerpt": "Attempted to send the current Gmail draft using Ctrl+Enter.",
+            "targets": [],
+            "email": {
+                "provider": "gmail",
+                "action": "send_current_draft",
+                "sent": "attempted",
+                "confirmation_required": True,
+            },
+        }
+
 
 class DisabledBrowserAutomationService(BrowserAutomationService):
     def ensure_session(self, start_url: str | None = None) -> dict[str, Any]:
@@ -148,6 +361,34 @@ class DisabledBrowserAutomationService(BrowserAutomationService):
         raise ValueError(
             "Browser automation is disabled. Set BROWSER_AUTOMATION_ENABLED=true on the Windows tool server."
         )
+
+    def gmail_open(self, view: str = "inbox") -> dict[str, Any]:
+        del view
+        raise ValueError(
+            "Browser automation is disabled. Set BROWSER_AUTOMATION_ENABLED=true on the Windows tool server."
+        )
+
+    def gmail_search(self, query: str) -> dict[str, Any]:
+        del query
+        raise ValueError(
+            "Browser automation is disabled. Set BROWSER_AUTOMATION_ENABLED=true on the Windows tool server."
+        )
+
+    def gmail_compose_draft(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+    ) -> dict[str, Any]:
+        del to, subject, body
+        raise ValueError(
+            "Browser automation is disabled. Set BROWSER_AUTOMATION_ENABLED=true on the Windows tool server."
+        )
+
+    def gmail_send_current_draft(self) -> dict[str, Any]:
+        raise ValueError(
+            "Browser automation is disabled. Set BROWSER_AUTOMATION_ENABLED=true on the Windows tool server."
+    )
 
 
 class MockBrowserAutomationService(BrowserAutomationService):
@@ -210,6 +451,72 @@ class MockBrowserAutomationService(BrowserAutomationService):
             )
         self._state["last_action"] = {"tool": "browser_press", "key": key}
         return self._snapshot()
+
+    def gmail_open(self, view: str = "inbox") -> dict[str, Any]:
+        normalized_view = _normalize_gmail_view(view)
+        self._state = self._gmail_state(
+            GMAIL_VIEWS[normalized_view],
+            f"Gmail {normalized_view.title()}",
+            f"Gmail. {normalized_view.title()}. Primary inbox. Compose. Search mail.",
+        )
+        snapshot = self._snapshot()
+        snapshot["email"] = {
+            "provider": "gmail",
+            "action": "open",
+            "view": normalized_view,
+            "authenticated": True,
+        }
+        return snapshot
+
+    def gmail_search(self, query: str) -> dict[str, Any]:
+        if not query.strip():
+            raise ValueError("gmail_search requires query.")
+        encoded_query = quote(query.strip(), safe="")
+        self._state = self._gmail_state(
+            f"{GMAIL_BASE_URL}/#search/{encoded_query}",
+            "Gmail Search",
+            f"Gmail search results for {query.strip()}. Compose. Search mail.",
+        )
+        snapshot = self._snapshot(max_text_chars=2000, max_targets=40)
+        snapshot["email"] = {
+            "provider": "gmail",
+            "action": "search",
+            "query": query.strip(),
+            "authenticated": True,
+        }
+        return snapshot
+
+    def gmail_compose_draft(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+    ) -> dict[str, Any]:
+        if not to.strip():
+            raise ValueError("gmail_compose_draft requires to.")
+        if not body.strip():
+            raise ValueError("gmail_compose_draft requires body.")
+        self._state = self._gmail_state(
+            f"{GMAIL_BASE_URL}/#drafts",
+            "Gmail Draft",
+            f"New Message draft. To {to.strip()}. Subject {subject.strip()}. {body.strip()}",
+        )
+        self._state["last_action"] = {
+            "tool": "gmail_compose_draft",
+            "to": to.strip(),
+            "subject": subject.strip(),
+            "body_preview": body.strip()[:160],
+        }
+        snapshot = self._snapshot(max_text_chars=2000, max_targets=40)
+        snapshot["email"] = {
+            "provider": "gmail",
+            "action": "compose_draft",
+            "to": to.strip(),
+            "subject": subject.strip(),
+            "body_preview": body.strip()[:160],
+            "sent": False,
+        }
+        return snapshot
 
     def _snapshot(
         self,
@@ -287,6 +594,12 @@ class MockBrowserAutomationService(BrowserAutomationService):
                     }
                 ],
             }
+        if "mail.google.com" in host:
+            return self._gmail_state(
+                url,
+                "Gmail",
+                "Gmail. Primary inbox. Compose. Search mail.",
+            )
         return {
             "url": url,
             "title": parsed.netloc or "Managed Browser",
@@ -305,6 +618,44 @@ class MockBrowserAutomationService(BrowserAutomationService):
                 }
             ],
         }
+
+    def _gmail_state(self, url: str, title: str, visible_text: str) -> dict[str, Any]:
+        return {
+            "url": url,
+            "title": title,
+            "visible_text": visible_text,
+            "targets": [
+                {
+                    "target_id": "t1",
+                    "tag": "button",
+                    "role": "button",
+                    "name": "Compose",
+                    "text": "Compose",
+                    "type": "",
+                    "actionable": ["click"],
+                    "disabled": False,
+                },
+                {
+                    "target_id": "t2",
+                    "tag": "input",
+                    "role": "searchbox",
+                    "name": "Search mail",
+                    "text": "",
+                    "type": "search",
+                    "actionable": ["type"],
+                    "disabled": False,
+                },
+            ],
+        }
+    def gmail_send_current_draft(self) -> dict[str, Any]:
+        snapshot = self._snapshot(max_text_chars=2000, max_targets=40)
+        snapshot["email"] = {
+            "provider": "gmail",
+            "action": "send_current_draft",
+            "sent": True,
+            "mock": True,
+        }
+        return snapshot
 
 
 class PlaywrightBrowserAutomationService(BrowserAutomationService):
@@ -382,6 +733,130 @@ class PlaywrightBrowserAutomationService(BrowserAutomationService):
             self._wait_for_page_settle(page)
             return self._snapshot_page(page)
 
+    def gmail_open(self, view: str = "inbox") -> dict[str, Any]:
+        normalized_view = _normalize_gmail_view(view)
+        with self._lock:
+            page = self._ensure_page()
+            page.goto(GMAIL_VIEWS[normalized_view], wait_until="domcontentloaded")
+            self._wait_for_page_settle(page)
+            snapshot = self._snapshot_page(page, max_text_chars=2000, max_targets=40)
+            snapshot["email"] = {
+                "provider": "gmail",
+                "action": "open",
+                "view": normalized_view,
+                "authenticated": self._is_gmail_authenticated(page),
+            }
+            return snapshot
+
+    def gmail_search(self, query: str) -> dict[str, Any]:
+        cleaned_query = query.strip()
+        if not cleaned_query:
+            raise ValueError("gmail_search requires query.")
+        with self._lock:
+            page = self._ensure_page()
+            page.goto(
+                f"{GMAIL_BASE_URL}/#search/{quote(cleaned_query, safe='')}",
+                wait_until="domcontentloaded",
+            )
+            self._wait_for_page_settle(page)
+            snapshot = self._snapshot_page(page, max_text_chars=2400, max_targets=50)
+            snapshot["email"] = {
+                "provider": "gmail",
+                "action": "search",
+                "query": cleaned_query,
+                "authenticated": self._is_gmail_authenticated(page),
+            }
+            return snapshot
+
+    def gmail_compose_draft(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+    ) -> dict[str, Any]:
+        cleaned_to = to.strip()
+        cleaned_subject = subject.strip()
+        cleaned_body = body.strip()
+        if not cleaned_to:
+            raise ValueError("gmail_compose_draft requires to.")
+        if not cleaned_body:
+            raise ValueError("gmail_compose_draft requires body.")
+
+        with self._lock:
+            page = self._ensure_page()
+            if "mail.google.com" not in urlparse(page.url).netloc.lower():
+                page.goto(GMAIL_VIEWS["inbox"], wait_until="domcontentloaded")
+                self._wait_for_page_settle(page)
+
+            if not self._is_gmail_authenticated(page):
+                snapshot = self._snapshot_page(page, max_text_chars=2000, max_targets=40)
+                snapshot["email"] = {
+                    "provider": "gmail",
+                    "action": "compose_draft",
+                    "authenticated": False,
+                    "sent": False,
+                    "blocked_reason": "Gmail is not signed in on the managed browser profile.",
+                }
+                return snapshot
+
+            compose_button = self._first_visible_locator(
+                page,
+                [
+                    "div[role='button'][gh='cm']",
+                    "div[role='button'][aria-label*='Compose']",
+                    "div[role='button']:has-text('Compose')",
+                ],
+            )
+            compose_button.click(timeout=self.settings.browser_default_timeout_ms)
+
+            to_field = self._first_visible_locator(
+                page,
+                [
+                    "textarea[name='to']",
+                    "input[aria-label*='To']",
+                    "textarea[aria-label*='To']",
+                ],
+            )
+            to_field.fill(cleaned_to, timeout=self.settings.browser_default_timeout_ms)
+            page.keyboard.press("Enter")
+
+            if cleaned_subject:
+                subject_field = self._first_visible_locator(
+                    page,
+                    [
+                        "input[name='subjectbox']",
+                        "input[aria-label='Subject']",
+                        "input[placeholder='Subject']",
+                    ],
+                )
+                subject_field.fill(cleaned_subject, timeout=self.settings.browser_default_timeout_ms)
+
+            body_field = self._first_visible_locator(
+                page,
+                [
+                    "div[aria-label='Message Body'][role='textbox']",
+                    "div[role='textbox'][aria-label*='Message Body']",
+                    "div[contenteditable='true'][role='textbox']",
+                ],
+            )
+            try:
+                body_field.fill(cleaned_body, timeout=self.settings.browser_default_timeout_ms)
+            except PlaywrightError:
+                body_field.click(timeout=self.settings.browser_default_timeout_ms)
+                page.keyboard.type(cleaned_body, delay=10)
+
+            snapshot = self._snapshot_page(page, max_text_chars=2400, max_targets=50)
+            snapshot["email"] = {
+                "provider": "gmail",
+                "action": "compose_draft",
+                "to": cleaned_to,
+                "subject": cleaned_subject,
+                "body_preview": cleaned_body[:160],
+                "authenticated": True,
+                "sent": False,
+            }
+            return snapshot
+
     def _ensure_page(self) -> Page:
         if self.settings.tool_mode != "windows":
             raise ValueError("Browser automation is only supported in TOOL_MODE=windows.")
@@ -429,6 +904,29 @@ class PlaywrightBrowserAutomationService(BrowserAutomationService):
             page.wait_for_load_state("domcontentloaded", timeout=self.settings.browser_default_timeout_ms)
         except Exception:
             return
+
+    def _first_visible_locator(self, page: Page, selectors: list[str]) -> Any:
+        last_error: Exception | None = None
+        per_selector_timeout = max(1000, self.settings.browser_default_timeout_ms // max(1, len(selectors)))
+        for selector in selectors:
+            locator = page.locator(selector).last
+            try:
+                locator.wait_for(state="visible", timeout=per_selector_timeout)
+                return locator
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+        raise ValueError(f"Could not find a visible Gmail element for selectors: {selectors}") from last_error
+
+    def _is_gmail_authenticated(self, page: Page) -> bool:
+        parsed = urlparse(page.url)
+        if parsed.netloc.lower().endswith("accounts.google.com"):
+            return False
+        if "mail.google.com" not in parsed.netloc.lower():
+            return False
+        try:
+            return page.locator("div[role='main'], div[gh='tl'], textarea[name='to']").count() > 0
+        except Exception:
+            return True
 
     def _snapshot_page(
         self,
@@ -558,4 +1056,15 @@ def build_browser_automation_service(settings: ToolServerSettings) -> BrowserAut
         return MockBrowserAutomationService()
     if not settings.browser_automation_enabled:
         return DisabledBrowserAutomationService()
-    return PlaywrightBrowserAutomationService(settings)
+
+    # Avoid Playwright Sync API inside FastAPI's asyncio loop.
+    return SimpleBrowserOpenService()
+
+
+def _normalize_gmail_view(view: str) -> str:
+    normalized = view.strip().lower()
+    if normalized in {"mail", "email", "gmail", ""}:
+        return "inbox"
+    if normalized not in GMAIL_VIEWS:
+        return "inbox"
+    return normalized
