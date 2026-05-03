@@ -9,7 +9,7 @@ class DesktopActionTests(unittest.TestCase):
     def test_normalizes_known_site_alias(self) -> None:
         self.assertEqual(
             normalize_browser_target("canvas"),
-            "https://canvas.instructure.com",
+            "https://canvas.oregonstate.edu/",
         )
 
     def test_adds_https_to_domains(self) -> None:
