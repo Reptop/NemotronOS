@@ -1,12 +1,11 @@
 .env
 .deps/
 .tmp/
+.tmp_tests/
 .venv/
 logs/
 node_modules/
 *.pyc
-<<<<<<< Updated upstream
-=======
 __pycache__/
 dist/
 build/
@@ -17,5 +16,3 @@ build/
 .DS_Store
 coverage/
 *.cover
-
->>>>>>> Stashed changes

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -25,21 +24,22 @@ class ScreenCaptureTests(unittest.TestCase):
         backend = WindowsDesktopBackend()
         fake_screenshot = _FakeScreenshot()
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            screenshot_dir = Path(temp_dir) / "screenshots"
-            with (
-                patch(
-                    "nemotronos_tools.tools.desktop_windows.ImageGrab.grab",
-                    return_value=fake_screenshot,
-                ) as grab_mock,
-                patch.object(WindowsDesktopBackend, "_ensure_windows_runtime"),
-                patch.object(
-                    WindowsDesktopBackend,
-                    "_screenshot_directory",
-                    return_value=screenshot_dir,
-                ),
-            ):
-                result = backend.capture_screen()
+        screenshot_dir = Path(__file__).resolve().parent
+        with (
+            patch(
+                "nemotronos_tools.tools.desktop_windows.ImageGrab.grab",
+                return_value=fake_screenshot,
+            ) as grab_mock,
+            patch.object(WindowsDesktopBackend, "_ensure_windows_runtime"),
+            patch.object(
+                WindowsDesktopBackend,
+                "_screenshot_directory",
+                return_value=screenshot_dir,
+            ),
+        ):
+            result = backend.capture_screen()
+
+        Path(result["path"]).unlink(missing_ok=True)
 
         grab_mock.assert_called_once_with(all_screens=True)
         self.assertTrue(result["captured"])
