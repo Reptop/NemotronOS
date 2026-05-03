@@ -11,6 +11,7 @@ Purpose: current operational snapshot for any teammate or AI agent joining mid-h
 - The stack is split into a FastAPI agent server, a FastAPI tool server, and a React dashboard.
 - On 2026-05-02, the stack was validated on Windows with `TOOL_MODE=mock_windows` and `MODEL_MODE=mock`.
 - On 2026-05-02, local NVIDIA NIM was validated from Windows at `http://127.0.0.1:8000/v1` with `nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1`.
+- The agent server now supports `MODEL_PROVIDER=nim|ollama` while keeping the same `MODEL_MODE=openai_compatible` path, so teammates can keep the NIM setup while lighter local Ollama tests target `nemotron-3-nano:4b`.
 - The current live desktop demo path is the Windows Notepad typing flow, and the Windows backend now has a first screenshot capture path for desktop-state inspection.
 
 ## What Works Now
@@ -22,10 +23,13 @@ Purpose: current operational snapshot for any teammate or AI agent joining mid-h
 - Approved plans can be applied and generate an undo log.
 - The dashboard can submit tasks, poll health/tasks/events, show the plan preview, and send approval.
 - The agent model layer works with `MODEL_MODE=openai_compatible` against the local 4B NIM endpoint for the Downloads demo. The client forces `fs_plan_changes` for the known Downloads organizer prompt and normalizes the root path to `DEFAULT_DOWNLOADS_PATH`.
+- `MODEL_PROVIDER=ollama` now defaults the same OpenAI-compatible client to `http://localhost:11434` with model `nemotron-3-nano:4b`, while `MODEL_PROVIDER=nim` preserves the prior NIM-oriented defaults and overrides.
 - The dashboard has a reset control wired through `POST /demo/reset-downloads` to restore the fake Downloads fixture for repeatable demos.
+- `scripts/run_local_stack.py` can bootstrap the local Python/dashboard dependencies and start the tool server, agent server, and dashboard from one terminal, skipping only `.env` creation.
+- `scripts/run_hybrid_stack.py` can launch the tool server in a separate interactive Windows PowerShell window while keeping the agent server and dashboard in WSL, matching the current mixed-environment desktop demo setup.
 - In `TOOL_MODE=windows`, the desktop backend can launch allowlisted apps, create a fresh temp file for Notepad, focus the launched window when Windows allows it, and paste text through `keyboard_type`.
 - In `TOOL_MODE=windows`, `screen_capture` uses Pillow/ImageGrab to save a PNG screenshot under the local temp `NemotronOS/screenshots` directory and returns the saved file path plus dimensions.
-- The coordinator auto-follows known Notepad typing goals with `keyboard_type` after `app_launch`, and voice dictation text can override the model's shorter typed-text argument.
+- The coordinator auto-follows known Notepad typing goals with `keyboard_type` after `app_launch`. It now prefers locally extracted quoted/trailing text from the user goal, then falls back to stored voice dictation text, and only asks the model for a second planning step when the literal text is still unclear.
 - The dashboard has a browser microphone path wired through `POST /voice/tasks`. The agent server transcribes with OpenAI's audio transcription API when `OPENAI_API_KEY` is configured, then submits the transcript as a normal task.
 - The dashboard supports a browser-scoped voice hotkey: `Ctrl+Shift+Space` toggles recording while the dashboard tab is active.
 - The dashboard supports browser-scoped wake words while enabled: utterances beginning with "Jarvis" or "Computer" are stripped of the wake word and submitted through `POST /voice/text-tasks`. Chrome/Edge use browser speech recognition; Firefox falls back to short MediaRecorder chunks sent to `POST /voice/wake-detect` for Whisper-based detection.
@@ -73,6 +77,8 @@ Purpose: current operational snapshot for any teammate or AI agent joining mid-h
 - The repo includes committed `__pycache__`, `dist`, and `*.egg-info` artifacts. They should not be treated as the canonical implementation.
 - The broader tool list in `apps/agent-server/nemotronos_agent/tool_defs.py` can make the system look more complete than the runtime actually is.
 - Local NIM may return a tool call with non-demo-safe paths. The current OpenAI-compatible client intentionally normalizes the known Downloads demo arguments before tool execution.
+- Ollama provider support is wired through Ollama's OpenAI-compatible endpoint, but this repo snapshot has only code-level and unit-test validation for that path so far, not a recorded Windows live run yet.
+- Earlier tool-call failures could lose useful detail when the underlying exception had an empty string form; the agent now records a fallback exception type string and includes tool-server response bodies on HTTP failures.
 
 ## Update Protocol
 

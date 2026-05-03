@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
 
 from .event_log import EventLog
@@ -120,8 +121,9 @@ class AgentCoordinator:
             self.task_store.update_task(task_id, state="completed", result=result)
             self.event_log.add_event("task_completed", task_id=task_id, result=result)
         except Exception as exc:  # noqa: BLE001
-            self.task_store.update_task(task_id, state="failed", error=str(exc))
-            self.event_log.add_event("task_failed", task_id=task_id, error=str(exc))
+            error = _format_exception(exc)
+            self.task_store.update_task(task_id, state="failed", error=error)
+            self.event_log.add_event("task_failed", task_id=task_id, error=error)
 
     async def approve_task(self, task_id: str, approved: bool) -> TaskRecord:
         task = self.task_store.get_task(task_id)
@@ -185,8 +187,9 @@ class AgentCoordinator:
             )
             self.event_log.add_event("task_completed", task_id=task_id, result=result)
         except Exception as exc:  # noqa: BLE001
-            self.task_store.update_task(task_id, state="failed", error=str(exc))
-            self.event_log.add_event("task_failed", task_id=task_id, error=str(exc))
+            error = _format_exception(exc)
+            self.task_store.update_task(task_id, state="failed", error=error)
+            self.event_log.add_event("task_failed", task_id=task_id, error=error)
 
     async def _queue_approval_for_plan(self, task_id: str, plan_result: dict[str, Any]) -> None:
         apply_arguments = {
@@ -281,29 +284,30 @@ class AgentCoordinator:
         if not task or not task.tool_calls:
             raise RuntimeError("Cannot plan desktop follow-up without the app launch result.")
 
-        planned_call = await self.model_client.plan_next_action(
-            goal,
-            self.tool_registry.definitions(),
-            previous_tool_name="app_launch",
-            previous_result=task.tool_calls[-1].result or {},
-        )
-        arguments = planned_call.arguments
-        if task.memory.get("voice_dictation_text"):
-            arguments = {
-                **arguments,
-                "text": task.memory["voice_dictation_text"],
-                "text_ref": "task.memory.voice_dictation_text",
-            }
+        arguments, rationale = self._notepad_follow_up_arguments(task, goal)
+        if arguments is None:
+            planned_call = await self.model_client.plan_next_action(
+                goal,
+                self.tool_registry.definitions(),
+                previous_tool_name="app_launch",
+                previous_result=task.tool_calls[-1].result or {},
+            )
+            arguments = planned_call.arguments
+            rationale = planned_call.rationale
+            if task.memory.get("voice_dictation_text"):
+                arguments = {
+                    **arguments,
+                    "text": task.memory["voice_dictation_text"],
+                    "text_ref": "task.memory.voice_dictation_text",
+                }
 
         self.event_log.add_event(
             "model_requested_tool",
             task_id=task_id,
-            tool_name=planned_call.name,
+            tool_name="keyboard_type",
             arguments=arguments,
-            rationale=planned_call.rationale,
+            rationale=rationale,
         )
-        if planned_call.name != "keyboard_type":
-            raise RuntimeError(f"Expected keyboard_type follow-up, got {planned_call.name}.")
 
         policy = self.policy_engine.classify("keyboard_type", arguments)
         self.event_log.add_event(
@@ -319,3 +323,53 @@ class AgentCoordinator:
 
         await asyncio.sleep(1.0)
         return await self.worker.call_tool(task_id, "keyboard_type", arguments)
+
+    def _notepad_follow_up_arguments(
+        self,
+        task: TaskRecord,
+        goal: str,
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        if task.memory.get("voice_dictation_text"):
+            return (
+                {
+                    "text": task.memory["voice_dictation_text"],
+                    "text_ref": "task.memory.voice_dictation_text",
+                },
+                "Use the stored voice dictation text for the Notepad follow-up.",
+            )
+
+        extracted_text = extract_notepad_text(goal)
+        if not extracted_text:
+            return None, None
+
+        return (
+            {"text": extracted_text},
+            "Extract the quoted or trailing literal text from the Notepad request.",
+        )
+
+
+def extract_notepad_text(goal: str) -> str | None:
+    quoted_match = re.search(r'"([^"\r\n]+)"', goal)
+    if quoted_match:
+        text = quoted_match.group(1).strip()
+        if text:
+            return text
+
+    command_match = re.search(
+        r"\btype\b(?:\s+(?:in|out|down|up|this|that|the|text|note))*"
+        r"\s*[:,-]?\s+(.+?)(?:\s+(?:in|on)\s+it\.?)?$",
+        goal,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not command_match:
+        return None
+
+    text = command_match.group(1).strip(" \t\n\r\"'")
+    return text or None
+
+
+def _format_exception(exc: Exception) -> str:
+    message = str(exc).strip()
+    if message:
+        return message
+    return f"{exc.__class__.__name__} raised without a message."

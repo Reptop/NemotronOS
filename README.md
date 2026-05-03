@@ -34,6 +34,32 @@ Only absolute `C:\...` or `C:/...` paths are accepted. Path traversal and sandbo
 
 ## Run locally
 
+### One-command launcher
+
+If your `.env` is already in place, you can bootstrap and start the local stack from one terminal:
+
+```bash
+python3 scripts/run_local_stack.py
+```
+
+The launcher creates `.venv` if needed, installs the editable Python apps, runs `npm install` for the dashboard when `apps/dashboard/node_modules` is missing, then starts the tool server, agent server, and dashboard together. Stop it with `Ctrl+C`.
+
+The script respects `.env` plus any shell overrides, so you can switch model providers inline, for example:
+
+```bash
+MODEL_MODE=openai_compatible MODEL_PROVIDER=ollama python3 scripts/run_local_stack.py
+```
+
+If you want the agent server and dashboard in WSL but the real Windows desktop tool server in an interactive PowerShell window, use:
+
+```bash
+python3 scripts/run_hybrid_stack.py
+```
+
+The hybrid launcher starts the Windows tool server in a separate PowerShell window, then runs the WSL agent server and dashboard locally in the current terminal. It assumes the Windows tool server environment lives at `.venv-win\Scripts\python.exe` under the same repo on the Windows side. Override that with `WINDOWS_TOOL_PYTHON` if needed.
+
+### Manual startup
+
 ### 1. Create a virtual environment and install Python apps
 
 ```bash
@@ -69,6 +95,39 @@ npm run dev
 ```
 
 The dashboard defaults to `http://localhost:5173` and polls the agent server at `http://localhost:5051`.
+
+### Model providers
+
+The agent server keeps the existing OpenAI-compatible/NIM path and now also supports a local Ollama path. Keep `MODEL_MODE=openai_compatible` when you want real model planning, then select the provider with `MODEL_PROVIDER`.
+
+NIM example:
+
+```bash
+MODEL_MODE=openai_compatible
+MODEL_PROVIDER=nim
+MODEL_BASE_URL=http://127.0.0.1:8000/v1
+MODEL_NAME=nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1
+MODEL_API_KEY=local-dev-key
+```
+
+Ollama example:
+
+```bash
+MODEL_MODE=openai_compatible
+MODEL_PROVIDER=ollama
+MODEL_BASE_URL=http://localhost:11434
+MODEL_NAME=nemotron-3-nano:4b
+MODEL_API_KEY=ollama
+```
+
+For the Ollama path, pull the model once and make sure the local Ollama server is running:
+
+```bash
+ollama pull nemotron-3-nano:4b
+ollama serve
+```
+
+NemotronOS calls Ollama through its OpenAI-compatible `v1/chat/completions` endpoint behind that base URL.
 
 ### Voice commands
 
@@ -154,6 +213,6 @@ Currently registered tool-server tools include `app_launch`, `keyboard_type`, `m
 ## Notes
 
 - Stores are in memory for this MVP, but the layout is intentionally modular so we can replace them with SQLite or Postgres later.
-- `MODEL_MODE=openai_compatible` is scaffolded for an OpenAI-compatible endpoint such as local NVIDIA NIM.
+- `MODEL_MODE=openai_compatible` is scaffolded for OpenAI-compatible endpoints including local NVIDIA NIM and local Ollama.
 - `DEFAULT_DOWNLOADS_PATH` controls the Windows path the model layer uses for the Downloads demo. The default is `C:\Users\Raed\Downloads` for the current fake Windows sandbox, but it should stay env-driven for real Windows testing.
 - `TOOL_MODE=mock_windows` keeps platform behavior behind interfaces so we avoid macOS-only dependencies while developing away from the Windows machine.

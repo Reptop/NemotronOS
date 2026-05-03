@@ -225,8 +225,10 @@ class OpenAICompatibleModelClient(ModelClient):
         payload: dict[str, Any],
         tool_definitions: list[dict[str, Any]],
     ) -> PlannedToolCall:
-        headers = {"Authorization": f"Bearer {self.settings.model_api_key}"}
-        url = f"{self.settings.model_base_url.rstrip('/')}/chat/completions"
+        headers = {}
+        if self.settings.model_api_key:
+            headers["Authorization"] = f"Bearer {self.settings.model_api_key}"
+        url = self._chat_completions_url()
         async with httpx.AsyncClient(timeout=self.settings.request_timeout_seconds) as client:
             response = await client.post(url, headers=headers, json=payload)
             response.raise_for_status()
@@ -248,6 +250,12 @@ class OpenAICompatibleModelClient(ModelClient):
             arguments=arguments,
             rationale=message.get("content"),
         )
+
+    def _chat_completions_url(self) -> str:
+        base_url = self.settings.model_base_url.rstrip("/")
+        if self.settings.model_provider == "ollama" and not base_url.endswith("/v1"):
+            base_url = f"{base_url}/v1"
+        return f"{base_url}/chat/completions"
 
     def _extract_tool_call(self, message: dict[str, Any]) -> dict[str, Any] | None:
         tool_calls = message.get("tool_calls") or []
