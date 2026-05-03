@@ -13,6 +13,11 @@ from uuid import uuid4
 
 from .desktop_base import DesktopBackend
 
+try:
+    from PIL import ImageGrab
+except ImportError:  # pragma: no cover - exercised in runtime environments without Pillow
+    ImageGrab = None  # type: ignore[assignment]
+
 
 ALLOWED_APPS: dict[str, str] = {
     "notepad": "notepad.exe",
@@ -25,28 +30,30 @@ ALLOWED_APPS: dict[str, str] = {
 INPUT_KEYBOARD = 1
 KEYEVENTF_KEYUP = 0x0002
 ULONG_PTR = wintypes.WPARAM
-USER32 = ctypes.WinDLL("user32", use_last_error=True)
-KERNEL32 = ctypes.WinDLL("kernel32", use_last_error=True)
+IS_WINDOWS_RUNTIME = hasattr(ctypes, "WinDLL")
+USER32 = ctypes.WinDLL("user32", use_last_error=True) if IS_WINDOWS_RUNTIME else None
+KERNEL32 = ctypes.WinDLL("kernel32", use_last_error=True) if IS_WINDOWS_RUNTIME else None
 SW_RESTORE = 9
 CF_UNICODETEXT = 13
 GMEM_MOVEABLE = 0x0002
 VK_CONTROL = 0x11
 VK_V = 0x56
 
-USER32.OpenClipboard.argtypes = [wintypes.HWND]
-USER32.OpenClipboard.restype = wintypes.BOOL
-USER32.EmptyClipboard.argtypes = []
-USER32.EmptyClipboard.restype = wintypes.BOOL
-USER32.SetClipboardData.argtypes = [wintypes.UINT, wintypes.HANDLE]
-USER32.SetClipboardData.restype = wintypes.HANDLE
-USER32.CloseClipboard.argtypes = []
-USER32.CloseClipboard.restype = wintypes.BOOL
-KERNEL32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
-KERNEL32.GlobalAlloc.restype = wintypes.HGLOBAL
-KERNEL32.GlobalLock.argtypes = [wintypes.HGLOBAL]
-KERNEL32.GlobalLock.restype = ctypes.c_void_p
-KERNEL32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
-KERNEL32.GlobalUnlock.restype = wintypes.BOOL
+if IS_WINDOWS_RUNTIME:
+    USER32.OpenClipboard.argtypes = [wintypes.HWND]
+    USER32.OpenClipboard.restype = wintypes.BOOL
+    USER32.EmptyClipboard.argtypes = []
+    USER32.EmptyClipboard.restype = wintypes.BOOL
+    USER32.SetClipboardData.argtypes = [wintypes.UINT, wintypes.HANDLE]
+    USER32.SetClipboardData.restype = wintypes.HANDLE
+    USER32.CloseClipboard.argtypes = []
+    USER32.CloseClipboard.restype = wintypes.BOOL
+    KERNEL32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
+    KERNEL32.GlobalAlloc.restype = wintypes.HGLOBAL
+    KERNEL32.GlobalLock.argtypes = [wintypes.HGLOBAL]
+    KERNEL32.GlobalLock.restype = ctypes.c_void_p
+    KERNEL32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
+    KERNEL32.GlobalUnlock.restype = wintypes.BOOL
 
 
 class KeyBdInput(ctypes.Structure):
@@ -93,8 +100,9 @@ class Input(ctypes.Structure):
     ]
 
 
-USER32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(Input), ctypes.c_int]
-USER32.SendInput.restype = wintypes.UINT
+if IS_WINDOWS_RUNTIME:
+    USER32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(Input), ctypes.c_int]
+    USER32.SendInput.restype = wintypes.UINT
 
 
 class WindowsDesktopBackend(DesktopBackend):
@@ -103,9 +111,37 @@ class WindowsDesktopBackend(DesktopBackend):
         self._last_window_title_hint: str | None = None
 
     def capture_screen(self) -> dict[str, Any]:
-        raise NotImplementedError("The real Windows desktop backend is not implemented yet.")
+        self._ensure_windows_runtime()
+        if ImageGrab is None:
+            raise OSError(
+                "screen_capture requires Pillow. Install tool-server dependencies first."
+            )
+
+        screenshot_dir = self._screenshot_directory()
+        screenshot_dir.mkdir(parents=True, exist_ok=True)
+        screenshot_path = screenshot_dir / f"screenshot-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}-{uuid4().hex[:8]}.png"
+
+        try:
+            screenshot = ImageGrab.grab(all_screens=True)
+            screenshot.save(screenshot_path, format="PNG")
+        except Exception as exc:  # noqa: BLE001
+            raise OSError(f"screen_capture failed: {exc}") from exc
+
+        width, height = screenshot.size
+        captured_at = datetime.now(timezone.utc).isoformat()
+        return {
+            "mode": "windows",
+            "captured": True,
+            "captured_at": captured_at,
+            "path": str(screenshot_path),
+            "image_ref": str(screenshot_path),
+            "mime_type": "image/png",
+            "width": width,
+            "height": height,
+        }
 
     def launch_app(self, app_name: str) -> dict[str, Any]:
+        self._ensure_windows_runtime()
         normalized_name = app_name.strip().lower()
         executable = ALLOWED_APPS.get(normalized_name)
         if not executable:
@@ -142,6 +178,7 @@ class WindowsDesktopBackend(DesktopBackend):
         }
 
     def type_text(self, text: str) -> dict[str, Any]:
+        self._ensure_windows_runtime()
         if not text:
             raise ValueError("keyboard_type requires non-empty text.")
 
@@ -164,6 +201,7 @@ class WindowsDesktopBackend(DesktopBackend):
         }
 
     def open_browser(self, url: str) -> dict[str, Any]:
+        self._ensure_windows_runtime()
         opened = webbrowser.open(url, new=2, autoraise=True)
         return {
             "mode": "windows",
@@ -181,6 +219,15 @@ class WindowsDesktopBackend(DesktopBackend):
         if app_name in {"paint", "mspaint"}:
             return "paint"
         return app_name
+
+    def _screenshot_directory(self) -> Path:
+        return Path(tempfile.gettempdir()) / "NemotronOS" / "screenshots"
+
+    def _ensure_windows_runtime(self) -> None:
+        if not IS_WINDOWS_RUNTIME or USER32 is None or KERNEL32 is None:
+            raise OSError(
+                "The Windows desktop backend must run on Windows from an interactive desktop session."
+            )
 
     def _create_notepad_document(self) -> Path:
         document_dir = Path(tempfile.gettempdir()) / "NemotronOS" / "notepad"
