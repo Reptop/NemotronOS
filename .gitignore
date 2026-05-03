@@ -4,3 +4,4 @@
 .venv/
 logs/
 node_modules/
+*.pyc

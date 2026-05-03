@@ -11,7 +11,7 @@ Purpose: current operational snapshot for any teammate or AI agent joining mid-h
 - The stack is split into a FastAPI agent server, a FastAPI tool server, and a React dashboard.
 - On 2026-05-02, the stack was validated on Windows with `TOOL_MODE=mock_windows` and `MODEL_MODE=mock`.
 - On 2026-05-02, local NVIDIA NIM was validated from Windows at `http://127.0.0.1:8000/v1` with `nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1`.
-- The current live desktop demo path is the Windows Notepad typing flow; screenshot capture is the most obvious missing capability on that surface.
+- The current live desktop demo path is the Windows Notepad typing flow, and the Windows backend now has a first screenshot capture path for desktop-state inspection.
 
 ## What Works Now
 
@@ -24,6 +24,7 @@ Purpose: current operational snapshot for any teammate or AI agent joining mid-h
 - The agent model layer works with `MODEL_MODE=openai_compatible` against the local 4B NIM endpoint for the Downloads demo. The client forces `fs_plan_changes` for the known Downloads organizer prompt and normalizes the root path to `DEFAULT_DOWNLOADS_PATH`.
 - The dashboard has a reset control wired through `POST /demo/reset-downloads` to restore the fake Downloads fixture for repeatable demos.
 - In `TOOL_MODE=windows`, the desktop backend can launch allowlisted apps, create a fresh temp file for Notepad, focus the launched window when Windows allows it, and paste text through `keyboard_type`.
+- In `TOOL_MODE=windows`, `screen_capture` uses Pillow/ImageGrab to save a PNG screenshot under the local temp `NemotronOS/screenshots` directory and returns the saved file path plus dimensions.
 - The coordinator auto-follows known Notepad typing goals with `keyboard_type` after `app_launch`, and voice dictation text can override the model's shorter typed-text argument.
 - The dashboard has a browser microphone path wired through `POST /voice/tasks`. The agent server transcribes with OpenAI's audio transcription API when `OPENAI_API_KEY` is configured, then submits the transcript as a normal task.
 - The dashboard supports a browser-scoped voice hotkey: `Ctrl+Shift+Space` toggles recording while the dashboard tab is active.
@@ -39,15 +40,15 @@ Purpose: current operational snapshot for any teammate or AI agent joining mid-h
 - Voice transcription currently uses OpenAI as temporary development scaffolding, not the final private/local STT architecture.
 - The local voice agent's current wake mode is Whisper polling with silence-based utterance capture, which is functional but not the final low-latency wake detector. The intended next swap is local openWakeWord/Porcupine for wake detection and NVIDIA Speech NIM/Riva for ASR/TTS.
 - The mock model does not behave like a general agent yet. It mainly supports the Downloads-organization path and otherwise falls back to `notify_user`.
-- `screen_capture` is mock output in `TOOL_MODE=mock_windows`.
+- `screen_capture` is still mock output in `TOOL_MODE=mock_windows`.
 - `shell_run` is a safe stub in `TOOL_MODE=mock_windows`; it does not execute real shell commands there.
-- The real Windows desktop backend has an initial allowlisted `app_launch`, `browser_open`, and `keyboard_type` implementation. Notepad launch creates a unique empty temp document so the demo does not type into a restored/preexisting note. The text follow-up is model-mediated, with voice memory overriding the typed text when the transcript contains clear dictation content. Windows text entry uses clipboard paste rather than per-character `SendInput`. `WindowsDesktopBackend.capture_screen()` still raises `NotImplementedError`.
+- The real Windows desktop backend now includes `screen_capture` through Pillow/ImageGrab plus the earlier allowlisted `app_launch`, `browser_open`, and `keyboard_type` implementation. Notepad launch creates a unique empty temp document so the demo does not type into a restored/preexisting note. The text follow-up is model-mediated, with voice memory overriding the typed text when the transcript contains clear dictation content. Windows text entry uses clipboard paste rather than per-character `SendInput`.
 - The agent advertises more tool definitions than the tool server currently registers. Treat `apps/tool-server/nemotronos_tools/registry.py` as the runtime truth.
 
 ## Highest-Priority Next Tasks
 
-1. Implement real `screen_capture` in `TOOL_MODE=windows`, including the payload shape the agent and dashboard should rely on for screenshot-driven tasks.
-2. Align tool definitions with registered runtime behavior so the advertised surface matches what the tool server can actually execute, especially once screenshot support lands.
+1. Align tool definitions with registered runtime behavior so the advertised surface matches what the tool server can actually execute, now that screenshot support has landed.
+2. Verify `screen_capture` from a signed-in interactive Windows session and decide whether the next agent step should consume the saved file path directly or attach richer image metadata.
 3. Keep the current stable demos tight: rerun the signed-in interactive Windows checks for Notepad typing and browser navigation after screenshot work changes the desktop backend.
 
 ## Windows Handoff Notes

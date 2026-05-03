@@ -23,7 +23,7 @@ NemotronOS is a hackathon MVP for a local, private, voice-controlled PC agent. D
 - `apps/tool-server/nemotronos_tools/tools/filesystem.py`
   - The real MVP slice: dry-run file organization plan, apply flow, and undo log generation.
 - `apps/tool-server/nemotronos_tools/tools/desktop_windows.py`
-  - Real Windows desktop backend for allowlisted app launch, browser open, and clipboard-based text entry. `capture_screen()` is still unimplemented here.
+  - Real Windows desktop backend for allowlisted app launch, browser open, clipboard-based text entry, and screenshot capture saved to a local temp directory.
 - `apps/dashboard/src/App.jsx`
   - Main dashboard entrypoint for task submission, approval, event polling, browser microphone capture, and browser-scoped wake words.
 - `apps/voice-agent/nemotronos_voice_agent/main.py`
@@ -68,9 +68,10 @@ The Downloads flow is still the only approval-driven end-to-end slice. If you ar
 - The tool surface is only partially real:
   - `fs_plan_changes` and `fs_apply_changes` are the most complete tools.
   - `app_launch`, `keyboard_type`, and `browser_open` have real Windows implementations in `TOOL_MODE=windows`.
-  - `screen_capture`, `shell_run`, and `notify_user` exist, but they are still mock/stub behavior in `TOOL_MODE=mock_windows`.
+  - `screen_capture` is real in `TOOL_MODE=windows` and mock in `TOOL_MODE=mock_windows`.
+  - `shell_run` and `notify_user` still exist as stub/mock behavior in the current MVP surface.
   - Several tool definitions advertised by the agent are not registered by the tool server yet.
-- The real Windows desktop backend is partially implemented, but `WindowsDesktopBackend.capture_screen()` still raises `NotImplementedError`.
+- Real screenshot capture depends on running the tool server in an interactive Windows desktop context with Pillow available.
 
 ## Doc Maintenance
 
