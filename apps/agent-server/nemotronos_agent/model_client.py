@@ -45,6 +45,22 @@ class ModelClient(ABC):
     async def generate_code(self, goal: str) -> GeneratedCode:
         raise NotImplementedError
 
+    @abstractmethod
+    async def summarize_screen_context(
+        self,
+        goal: str,
+        screen_context: dict[str, Any],
+    ) -> str:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def summarize_recent_activity(
+        self,
+        goal: str,
+        activity_context: dict[str, Any],
+    ) -> str:
+        raise NotImplementedError
+
 
 class MockModelClient(ModelClient):
     def __init__(self, settings: AgentServerSettings) -> None:
@@ -75,6 +91,14 @@ class MockModelClient(ModelClient):
                 rationale="Generate code and open it in a fresh VS Code window.",
             )
 
+        email_arguments = _extract_email_draft_arguments(goal)
+        if email_arguments:
+            return PlannedToolCall(
+                name="email_create_draft",
+                arguments=email_arguments,
+                rationale="Create a Gmail draft without sending it.",
+            )
+
         discord_arguments = _extract_discord_message_arguments(goal)
         if discord_arguments:
             return PlannedToolCall(
@@ -83,12 +107,28 @@ class MockModelClient(ModelClient):
                 rationale="Send the requested message to the active Discord conversation.",
             )
 
+        canvas_assignment_arguments = _extract_canvas_assignment_arguments(goal)
+        if canvas_assignment_arguments:
+            return PlannedToolCall(
+                name="canvas_list_assignments_due_soon",
+                arguments=canvas_assignment_arguments,
+                rationale="List Canvas assignments due soon before creating a todo note.",
+            )
+
         canvas_arguments = _extract_canvas_arguments(goal)
         if canvas_arguments:
             return PlannedToolCall(
                 name="canvas_open_course",
                 arguments=canvas_arguments,
                 rationale="Open Canvas and navigate to the requested course.",
+            )
+
+        accessibility_arguments = _extract_accessibility_describe_arguments(goal)
+        if accessibility_arguments:
+            return PlannedToolCall(
+                name="accessibility_describe_screen",
+                arguments=accessibility_arguments,
+                rationale="Describe the current desktop context for accessibility.",
             )
 
         youtube_arguments = _extract_youtube_arguments(goal)
@@ -150,6 +190,36 @@ class MockModelClient(ModelClient):
             ),
         )
 
+    async def summarize_screen_context(
+        self,
+        goal: str,
+        screen_context: dict[str, Any],
+    ) -> str:
+        del goal
+        foreground = screen_context.get("foreground_window") or {}
+        title = str(foreground.get("title") or "the current desktop").strip()
+        summary = str(screen_context.get("screen_summary") or "").strip()
+        if summary:
+            return summary
+        return f"You appear to be focused on {title}. I can also see other desktop windows listed in the context."
+
+    async def summarize_recent_activity(
+        self,
+        goal: str,
+        activity_context: dict[str, Any],
+    ) -> str:
+        del goal
+        recent_tasks = activity_context.get("recent_tasks") or []
+        if not recent_tasks:
+            return "I do not have a previous action to summarize yet."
+        task = recent_tasks[0]
+        state = str(task.get("state") or "unknown")
+        goal_text = str(task.get("goal") or "the previous request")
+        tools = ", ".join(str(call.get("name")) for call in task.get("tool_calls", []))
+        if tools:
+            return f"The last task was: {goal_text}. It finished with state {state} after using {tools}."
+        return f"The last task was: {goal_text}. It finished with state {state}."
+
 
 class OpenAICompatibleModelClient(ModelClient):
     def __init__(self, settings: AgentServerSettings) -> None:
@@ -197,12 +267,29 @@ class OpenAICompatibleModelClient(ModelClient):
 
         arguments = planned_call.arguments
         tool_name = planned_call.name
+        rationale = planned_call.rationale
+        email_arguments = _extract_email_draft_arguments(goal)
+        if email_arguments and tool_name != "email_create_draft":
+            tool_name = "email_create_draft"
+            arguments = email_arguments
+            rationale = "Normalize email compose workflow to Gmail draft creation."
+        canvas_assignment_arguments = _extract_canvas_assignment_arguments(goal)
+        if canvas_assignment_arguments and tool_name != "canvas_list_assignments_due_soon":
+            tool_name = "canvas_list_assignments_due_soon"
+            arguments = canvas_assignment_arguments
+            rationale = "Normalize Canvas due-date workflow to assignment lookup first."
+        accessibility_arguments = _extract_accessibility_describe_arguments(goal)
+        if accessibility_arguments and tool_name != "accessibility_describe_screen":
+            tool_name = "accessibility_describe_screen"
+            arguments = accessibility_arguments
+            rationale = "Normalize screen-context request to accessibility narration."
+
         arguments = self._normalize_first_action_arguments(goal, tool_name, arguments)
 
         return PlannedToolCall(
             name=tool_name,
             arguments=arguments,
-            rationale=planned_call.rationale,
+            rationale=rationale,
         )
 
     async def plan_next_action(
@@ -312,6 +399,52 @@ class OpenAICompatibleModelClient(ModelClient):
             language=fenced_language or _guess_code_language(goal, code),
         )
 
+    async def summarize_screen_context(
+        self,
+        goal: str,
+        screen_context: dict[str, Any],
+    ) -> str:
+        context_json = _compact_json(screen_context, max_characters=9000)
+        return await self._request_text_response(
+            system_prompt=(
+                "You are NemotronOS in accessibility narration mode for a blind or "
+                "low-vision Windows user. Explain the current screen from the provided "
+                "structured desktop context. Return plain spoken text only: no markdown, "
+                "no bullets, no headings, and no raw JSON. Use two to four complete "
+                "sentences. Start with 'You are focused on ...' when the foreground "
+                "window is known. Mention important visible windows or controls, then "
+                "suggest one safe next action the user can ask for. Do not claim certainty "
+                "about pixels you cannot inspect. If screenshot metadata is present but no "
+                "image content is provided, do not pretend to visually inspect the image."
+            ),
+            user_prompt=(
+                f"User request: {goal}\n\n"
+                f"Structured screen context JSON:\n{context_json}"
+            ),
+            max_tokens=420,
+        )
+
+    async def summarize_recent_activity(
+        self,
+        goal: str,
+        activity_context: dict[str, Any],
+    ) -> str:
+        context_json = _compact_json(activity_context, max_characters=9000)
+        return await self._request_text_response(
+            system_prompt=(
+                "You are NemotronOS explaining your own recent actions to a blind or "
+                "low-vision user. Summarize what you just did in first person, based only "
+                "on the task and tool-event context. Mention whether it completed, failed, "
+                "or needs approval. Return plain spoken text only: no markdown, no raw JSON, "
+                "no hidden reasoning, and no <think> blocks. Use two complete sentences at most."
+            ),
+            user_prompt=(
+                f"User question: {goal}\n\n"
+                f"Recent activity context JSON:\n{context_json}"
+            ),
+            max_tokens=320,
+        )
+
     def _first_action_system_prompt(self) -> str:
         return (
             "You are NemotronOS, a private Windows PC agent. "
@@ -330,12 +463,20 @@ class OpenAICompatibleModelClient(ModelClient):
             "browser_type, browser_select_option, and browser_press. "
             "If the user asks for Canvas course navigation, call canvas_open_course with "
             "the natural course name in course_query. "
+            "If the user asks for Canvas assignments, homework, to-do items, or due dates, "
+            "call canvas_list_assignments_due_soon with days_ahead; use 7 for 'next week'. "
+            "If the user asks what is on screen, what they are looking at, to describe, "
+            "read, summarize, or explain the active/current/foreground window, app, "
+            "page, screen, desktop, or visible context, call accessibility_describe_screen "
+            "with include_screenshot=true and max_windows=12. "
             "If the user asks for YouTube content, call youtube_open. Use action='random' "
             "for random/recommended video requests, action='search' with query and "
             "prefer_video_results=true for video/title/channel searches, and action='video' "
             "only for exact YouTube URLs or IDs. "
             "If the user asks to send/post/type a message to Discord or the active chat, "
             "call discord_send_message with only the message body in text. "
+            "If the user asks to write, compose, draft, or send an email or Gmail message, "
+            "call email_create_draft with to, subject when present, and body; never send it. "
             "If the user asks you to write, code, build, create, or generate software, "
             "scripts, functions, components, web pages, or code snippets, call "
             "vscode_paste_code with request set to the full coding request and optional "
@@ -369,13 +510,50 @@ class OpenAICompatibleModelClient(ModelClient):
             "and prefer_video_results=true. "
             "For random YouTube video requests, use youtube_open with action='random'. "
             "For Notepad typing, use app_launch with app_name='notepad'. "
+            "For accessibility or screen-context requests, including describing, reading, "
+            "summarizing, or explaining the current screen, active window, foreground app, "
+            "visible page, or desktop context, use accessibility_describe_screen with "
+            "include_screenshot=true and max_windows=12. "
             "For Discord messages, use discord_send_message and put only the message body "
-            "in text. For Canvas course navigation, use canvas_open_course. "
+            "in text. For Canvas assignment/homework due-date requests, use "
+            "canvas_list_assignments_due_soon. For Canvas course navigation, use "
+            "canvas_open_course. "
+            "For email or Gmail compose requests, use email_create_draft and include "
+            "to, subject when present, and body; do not send email. "
             "For normal websites/domains/URLs, use browser_open. "
             "For coding requests, use vscode_paste_code with request set to the full "
             "coding request and language only when obvious; do not include generated code. "
             f"Tool schemas: {tool_schemas}"
         )
+
+    async def _request_text_response(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int,
+    ) -> str:
+        headers = {}
+        if self.settings.model_api_key:
+            headers["Authorization"] = f"Bearer {self.settings.model_api_key}"
+        payload = {
+            "model": self.settings.model_name,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.2,
+            "max_tokens": max_tokens,
+        }
+        async with httpx.AsyncClient(timeout=self.settings.request_timeout_seconds) as client:
+            response = await client.post(self._chat_completions_url(), headers=headers, json=payload)
+            response.raise_for_status()
+
+        data = response.json()
+        content = str(data["choices"][0]["message"].get("content") or "")
+        cleaned = self._clean_text_response(content)
+        if not cleaned:
+            raise RuntimeError("Model returned an empty accessibility summary.")
+        return cleaned
 
     async def _request_tool_call(
         self,
@@ -521,6 +699,25 @@ class OpenAICompatibleModelClient(ModelClient):
 
         return cleaned, None
 
+    def _clean_text_response(self, content: str) -> str:
+        cleaned = content.strip()
+        if re.search(r"<think\b", cleaned, flags=re.IGNORECASE):
+            cleaned = re.sub(
+                r"<think\b[^>]*>.*?</think>",
+                "",
+                cleaned,
+                flags=re.DOTALL | re.IGNORECASE,
+            ).strip()
+            cleaned = re.sub(
+                r"<think\b[^>]*>.*",
+                "",
+                cleaned,
+                flags=re.DOTALL | re.IGNORECASE,
+            ).strip()
+        cleaned = re.sub(r"^```(?:text|markdown)?\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+        return cleaned.strip()
+
     def _should_force_downloads_plan(self, goal: str) -> bool:
         lowered_goal = goal.lower()
         return "organize" in lowered_goal and "download" in lowered_goal
@@ -595,6 +792,51 @@ class OpenAICompatibleModelClient(ModelClient):
                 **({"language": language} if language else {}),
                 "open_new_window": bool(arguments.get("open_new_window", True)),
             }
+        if tool_name == "email_create_draft":
+            extracted = _extract_email_draft_arguments(goal) or {}
+            to_value = (
+                arguments.get("to")
+                or arguments.get("recipient")
+                or arguments.get("recipients")
+                or extracted.get("to")
+            )
+            body = str(
+                arguments.get("body")
+                or arguments.get("message")
+                or arguments.get("text")
+                or extracted.get("body")
+                or ""
+            ).strip()
+            subject = str(arguments.get("subject") or extracted.get("subject") or "").strip()
+            normalized = {
+                **arguments,
+                "to": to_value,
+                "body": body,
+            }
+            if subject:
+                normalized["subject"] = subject
+            for optional_name in ("cc", "bcc"):
+                if arguments.get(optional_name):
+                    normalized[optional_name] = arguments[optional_name]
+            normalized.pop("recipient", None)
+            normalized.pop("recipients", None)
+            normalized.pop("message", None)
+            normalized.pop("text", None)
+            return normalized
+        if tool_name == "canvas_list_assignments_due_soon":
+            extracted = _extract_canvas_assignment_arguments(goal) or {}
+            return {
+                **extracted,
+                **arguments,
+                "days_ahead": int(arguments.get("days_ahead") or extracted.get("days_ahead") or 7),
+                "include_completed": bool(arguments.get("include_completed", False)),
+            }
+        if tool_name == "accessibility_describe_screen":
+            return {
+                **arguments,
+                "include_screenshot": bool(arguments.get("include_screenshot", True)),
+                "max_windows": int(arguments.get("max_windows") or 12),
+            }
         return arguments
 
     def _fallback_first_action(self, goal: str) -> PlannedToolCall:
@@ -606,6 +848,14 @@ class OpenAICompatibleModelClient(ModelClient):
                 rationale="Fallback parser routed a coding request to VS Code.",
             )
 
+        email_arguments = _extract_email_draft_arguments(goal)
+        if email_arguments:
+            return PlannedToolCall(
+                name="email_create_draft",
+                arguments=email_arguments,
+                rationale="Fallback parser routed an email draft request.",
+            )
+
         discord_arguments = _extract_discord_message_arguments(goal)
         if discord_arguments:
             return PlannedToolCall(
@@ -614,12 +864,28 @@ class OpenAICompatibleModelClient(ModelClient):
                 rationale="Fallback parser routed a Discord message request.",
             )
 
+        canvas_assignment_arguments = _extract_canvas_assignment_arguments(goal)
+        if canvas_assignment_arguments:
+            return PlannedToolCall(
+                name="canvas_list_assignments_due_soon",
+                arguments=canvas_assignment_arguments,
+                rationale="Fallback parser routed a Canvas assignment due-date request.",
+            )
+
         canvas_arguments = _extract_canvas_arguments(goal)
         if canvas_arguments:
             return PlannedToolCall(
                 name="canvas_open_course",
                 arguments=canvas_arguments,
                 rationale="Fallback parser routed Canvas course navigation.",
+            )
+
+        accessibility_arguments = _extract_accessibility_describe_arguments(goal)
+        if accessibility_arguments:
+            return PlannedToolCall(
+                name="accessibility_describe_screen",
+                arguments=accessibility_arguments,
+                rationale="Fallback parser routed a screen narration request.",
             )
 
         youtube_arguments = _extract_youtube_arguments(goal)
@@ -655,6 +921,13 @@ def build_model_client(settings: AgentServerSettings) -> ModelClient:
     if settings.model_mode == "openai_compatible":
         return OpenAICompatibleModelClient(settings)
     return MockModelClient(settings)
+
+
+def _compact_json(value: Any, max_characters: int) -> str:
+    text = json.dumps(value, ensure_ascii=False, default=str)
+    if len(text) <= max_characters:
+        return text
+    return f"{text[: max_characters - 28]}... <truncated for prompt>"
 
 
 def _extract_browser_target(goal: str) -> str | None:
@@ -805,6 +1078,92 @@ def _extract_code_request_arguments(goal: str) -> dict[str, Any] | None:
     }
 
 
+def _extract_email_draft_arguments(goal: str) -> dict[str, Any] | None:
+    lowered_goal = goal.lower()
+    has_email_intent = re.search(r"\b(?:email|gmail|e-mail)\b", lowered_goal)
+    has_email_address = re.search(
+        r"\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b",
+        lowered_goal,
+    )
+    has_compose_verb = re.search(
+        r"\b(?:write|compose|draft|create|make|send)\b",
+        lowered_goal,
+    )
+    if not ((has_email_intent or has_email_address) and has_compose_verb):
+        return None
+
+    patterns = (
+        r"\b(?:write|compose|draft|create|make|send)\s+(?:an?\s+)?"
+        r"(?:gmail\s+)?(?:e-?mail|message)\s+to\s+(.+?)\s+"
+        r"(?:with\s+(?:the\s+)?)?subject\s+(.+?)\s+"
+        r"(?:and\s+)?(?:body|message|saying|that\s+says)\s+(.+)$",
+        r"\b(?:write|compose|draft|create|make|send)\s+(?:an?\s+)?"
+        r"(?:gmail\s+)?(?:e-?mail|message)\s+to\s+(.+?)\s+"
+        r"(?:saying|that\s+says|with\s+the\s+message|with\s+message|body|message)\s+(.+)$",
+        r"\b(?:email|gmail|e-mail)\s+(.+?)\s+"
+        r"(?:saying|that\s+says|with\s+the\s+message|with\s+message|body|message)\s+(.+)$",
+    )
+    for index, pattern in enumerate(patterns):
+        match = re.search(pattern, goal, flags=re.IGNORECASE | re.DOTALL)
+        if not match:
+            continue
+        recipient = _clean_email_recipient(match.group(1))
+        if index == 0:
+            subject = _clean_email_subject(match.group(2))
+            body = _clean_email_body(match.group(3))
+        else:
+            subject = ""
+            body = _clean_email_body(match.group(2))
+        if recipient and body:
+            return {
+                "to": recipient,
+                **({"subject": subject} if subject else {}),
+                "body": body,
+            }
+
+    return None
+
+
+def _extract_canvas_assignment_arguments(goal: str) -> dict[str, Any] | None:
+    lowered_goal = goal.lower()
+    if "canvas" not in lowered_goal:
+        return None
+    if not re.search(
+        r"\b(?:assignment|assignments|homework|to-?do|todo|due|deadline|deadlines)\b",
+        lowered_goal,
+    ):
+        return None
+
+    days_ahead = 7
+    days_match = re.search(
+        r"\b(?:next|within|in)\s+(\d{1,2})\s+(?:day|days)\b",
+        lowered_goal,
+    )
+    if days_match:
+        days_ahead = max(1, min(int(days_match.group(1)), 30))
+    elif re.search(r"\b(?:week|next week)\b", lowered_goal):
+        days_ahead = 7
+
+    arguments: dict[str, Any] = {
+        "days_ahead": days_ahead,
+        "include_completed": False,
+    }
+    course_arguments = _extract_canvas_arguments(goal)
+    if course_arguments:
+        arguments["course_query"] = course_arguments["course_query"]
+    else:
+        course_match = re.search(
+            r"\b(?:for|from|in)\s+(?:my\s+|the\s+)?(.+?)\s+(?:course|class)\b",
+            goal,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if course_match:
+            course_query = _clean_course_query(course_match.group(1))
+            if course_query:
+                arguments["course_query"] = course_query
+    return arguments
+
+
 def _extract_canvas_arguments(goal: str) -> dict[str, Any] | None:
     lowered_goal = goal.lower()
     if "canvas" not in lowered_goal:
@@ -827,6 +1186,38 @@ def _extract_canvas_arguments(goal: str) -> dict[str, Any] | None:
             return {"course_query": course_query}
 
     return None
+
+
+def _extract_accessibility_describe_arguments(goal: str) -> dict[str, Any] | None:
+    lowered_goal = goal.lower()
+    if re.search(
+        r"\b(?:what\s+am\s+i\s+looking\s+at|what\s+do\s+you\s+see|"
+        r"what(?:'s| is)?\s+on\s+(?:my\s+)?screen|screen\s+context)\b",
+        lowered_goal,
+    ):
+        return {
+            "include_screenshot": True,
+            "max_windows": 12,
+        }
+
+    has_visual_context_noun = re.search(
+        r"\b(?:screen|window|desktop|foreground|active|current|visible|view|page|"
+        r"app|application|ui|interface|context)\b",
+        lowered_goal,
+    )
+    has_describe_intent = re.search(
+        r"\b(?:describe|explain|summarize|read|inspect|look\s+at|looking\s+at|"
+        r"what\s+(?:am\s+i\s+looking\s+at|do\s+you\s+see|is\s+on)|"
+        r"what(?:'s| is)\s+(?:on|this|the|my)|"
+        r"tell\s+me\s+(?:what|about)|give\s+me|show\s+me|guide\s+me)\b",
+        lowered_goal,
+    )
+    if not (has_visual_context_noun and has_describe_intent):
+        return None
+    return {
+        "include_screenshot": True,
+        "max_windows": 12,
+    }
 
 
 def _extract_youtube_arguments(goal: str) -> dict[str, Any] | None:
@@ -940,6 +1331,28 @@ def _clean_message_text(text: str) -> str:
         flags=re.IGNORECASE,
     )
     return cleaned.strip(" \t\n\r.,;:\"'")
+
+
+def _clean_email_recipient(text: str) -> str:
+    cleaned = text.strip(" \t\n\r.,;:\"'")
+    cleaned = re.sub(r"^(?:my|the|a|an)\s+", "", cleaned, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", cleaned).strip(" \t\n\r.,;:\"'")
+
+
+def _clean_email_subject(text: str) -> str:
+    cleaned = re.sub(r"\s+", " ", text.strip(" \t\n\r.,;:\"'"))
+    return cleaned[:300].strip()
+
+
+def _clean_email_body(text: str) -> str:
+    cleaned = text.strip(" \t\n\r")
+    cleaned = re.sub(
+        r"^(?:saying|say|that\s+says|body|message|the\s+message\s+is)\s*[,;:-]?\s+",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    return cleaned.strip(" \t\n\r\"'")
 
 
 def _clean_course_query(text: str) -> str:

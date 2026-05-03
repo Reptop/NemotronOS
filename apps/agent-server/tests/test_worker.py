@@ -44,6 +44,7 @@ class AgentWorkerTests(unittest.TestCase):
             settings=AgentServerSettings(
                 app_env="test",
                 model_mode="mock",
+                model_provider="nim",
                 model_base_url="http://127.0.0.1:8000/v1",
                 model_name="mock",
                 model_api_key="local-dev-key",
@@ -67,6 +68,72 @@ class AgentWorkerTests(unittest.TestCase):
         )
 
         self.assertEqual(redacted["code"], "<14 chars from task.memory.generated_code>")
+
+    def test_redacts_message_ref_arguments(self) -> None:
+        worker = AgentWorker(
+            settings=AgentServerSettings(
+                app_env="test",
+                model_mode="mock",
+                model_provider="nim",
+                model_base_url="http://127.0.0.1:8000/v1",
+                model_name="mock",
+                model_api_key="local-dev-key",
+                openai_api_key="",
+                transcription_model="whisper-1",
+                openai_base_url="https://api.openai.com/v1",
+                default_downloads_path=r"C:\Users\Raed\Downloads",
+                tool_server_url="http://127.0.0.1:5050",
+                agent_server_url="http://127.0.0.1:5051",
+                request_timeout_seconds=1,
+            ),
+            task_store=TaskStore(),
+            event_log=EventLog(),
+        )
+
+        redacted = worker._redact_tool_arguments(
+            {
+                "message": "You are on the Canvas assignments page.",
+                "text_ref": "task.memory.accessibility_narration",
+            }
+        )
+
+        self.assertEqual(
+            redacted["message"],
+            "<39 chars from task.memory.accessibility_narration>",
+        )
+
+    def test_redacts_body_ref_arguments(self) -> None:
+        worker = AgentWorker(
+            settings=AgentServerSettings(
+                app_env="test",
+                model_mode="mock",
+                model_provider="nim",
+                model_base_url="http://127.0.0.1:8000/v1",
+                model_name="mock",
+                model_api_key="local-dev-key",
+                openai_api_key="",
+                transcription_model="whisper-1",
+                openai_base_url="https://api.openai.com/v1",
+                default_downloads_path=r"C:\Users\Raed\Downloads",
+                tool_server_url="http://127.0.0.1:5050",
+                agent_server_url="http://127.0.0.1:5051",
+                request_timeout_seconds=1,
+            ),
+            task_store=TaskStore(),
+            event_log=EventLog(),
+        )
+
+        redacted = worker._redact_tool_arguments(
+            {
+                "body": "Private email draft.",
+                "body_ref": "task.memory.email_draft_body",
+            }
+        )
+
+        self.assertEqual(
+            redacted["body"],
+            "<20 chars from task.memory.email_draft_body>",
+        )
 
 
 if __name__ == "__main__":

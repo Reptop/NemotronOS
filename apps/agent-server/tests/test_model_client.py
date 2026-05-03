@@ -7,10 +7,13 @@ from nemotronos_agent.config import AgentServerSettings
 from nemotronos_agent.model_client import (
     OpenAICompatibleModelClient,
     PlannedToolCall,
+    _extract_accessibility_describe_arguments,
     _extract_browser_target,
+    _extract_canvas_assignment_arguments,
     _extract_canvas_arguments,
     _extract_code_request_arguments,
     _extract_discord_message_arguments,
+    _extract_email_draft_arguments,
     _extract_youtube_arguments,
 )
 
@@ -190,6 +193,111 @@ class OpenAICompatibleModelClientTests(unittest.TestCase):
         self.assertEqual(planned_call.name, "canvas_open_course")
         self.assertEqual(planned_call.arguments, {"course_query": "intro to AI"})
 
+    def test_canvas_assignment_due_dates_route_to_assignment_tool(self) -> None:
+        client = RecordingModelClient(
+            self.settings,
+            PlannedToolCall(
+                name="canvas_list_assignments_due_soon",
+                arguments={"days_ahead": 7},
+            ),
+        )
+
+        planned_call = asyncio.run(
+            client.plan_first_action(
+                "Open Canvas, find assignments due within the next week, and make a todo note.",
+                [],
+            )
+        )
+
+        self.assertEqual(planned_call.name, "canvas_list_assignments_due_soon")
+        self.assertEqual(
+            planned_call.arguments,
+            {"days_ahead": 7, "include_completed": False},
+        )
+
+    def test_accessibility_request_overrides_unsupported_model_reply(self) -> None:
+        client = RecordingModelClient(
+            self.settings,
+            PlannedToolCall(
+                name="notify_user",
+                arguments={"message": "I do not know how to do that yet."},
+            ),
+        )
+
+        planned_call = asyncio.run(
+            client.plan_first_action(
+                "Describe my active window.",
+                [],
+            )
+        )
+
+        self.assertEqual(planned_call.name, "accessibility_describe_screen")
+        self.assertEqual(
+            planned_call.arguments,
+            {"include_screenshot": True, "max_windows": 12},
+        )
+
+    def test_accessibility_request_falls_back_when_model_planning_fails(self) -> None:
+        client = RecordingModelClient(
+            self.settings,
+            error=RuntimeError("model did not return a tool call"),
+            json_error=RuntimeError("json planner did not return a tool call"),
+        )
+
+        planned_call = asyncio.run(
+            client.plan_first_action(
+                "Can you give me visual context for the foreground app?",
+                [],
+            )
+        )
+
+        self.assertEqual(planned_call.name, "accessibility_describe_screen")
+        self.assertEqual(
+            planned_call.arguments,
+            {"include_screenshot": True, "max_windows": 12},
+        )
+
+    def test_canvas_assignment_request_overrides_premature_sticky_tool(self) -> None:
+        client = RecordingModelClient(
+            self.settings,
+            PlannedToolCall(
+                name="sticky_note_create",
+                arguments={"text": "todo"},
+            ),
+        )
+
+        planned_call = asyncio.run(
+            client.plan_first_action(
+                "Open Canvas, find assignments due within the next week, and make a sticky note.",
+                [],
+            )
+        )
+
+        self.assertEqual(planned_call.name, "canvas_list_assignments_due_soon")
+        self.assertEqual(
+            planned_call.arguments,
+            {"days_ahead": 7, "include_completed": False},
+        )
+
+    def test_extracts_canvas_assignment_window(self) -> None:
+        self.assertEqual(
+            _extract_canvas_assignment_arguments(
+                "Open Canvas and find assignments due within the next week."
+            ),
+            {"days_ahead": 7, "include_completed": False},
+        )
+        self.assertEqual(
+            _extract_canvas_assignment_arguments(
+                "Check Canvas homework due within 3 days for my intro to AI course."
+            ),
+            {
+                "days_ahead": 3,
+                "include_completed": False,
+                "course_query": "intro to AI",
+            },
+        )
+        self.assertIsNone(_extract_canvas_assignment_arguments("Open Canvas."))
+
     def test_extracts_canvas_course_query(self) -> None:
         self.assertEqual(
             _extract_canvas_arguments("Open Canvas and navigate to my intro to AI course."),
@@ -340,6 +448,62 @@ class OpenAICompatibleModelClientTests(unittest.TestCase):
             },
         )
 
+    def test_email_compose_request_routes_to_gmail_draft_tool(self) -> None:
+        client = RecordingModelClient(
+            self.settings,
+            PlannedToolCall(
+                name="email_create_draft",
+                arguments={
+                    "to": "alex@example.com",
+                    "subject": "Hackathon update",
+                    "body": "I finished the demo slice.",
+                },
+            ),
+        )
+
+        planned_call = asyncio.run(
+            client.plan_first_action(
+                "Compose an email to alex@example.com with subject Hackathon update "
+                "saying I finished the demo slice.",
+                [],
+            )
+        )
+
+        self.assertEqual(planned_call.name, "email_create_draft")
+        self.assertEqual(
+            planned_call.arguments,
+            {
+                "to": "alex@example.com",
+                "subject": "Hackathon update",
+                "body": "I finished the demo slice.",
+            },
+        )
+
+    def test_email_compose_overrides_browser_misroute(self) -> None:
+        client = RecordingModelClient(
+            self.settings,
+            PlannedToolCall(
+                name="browser_open",
+                arguments={"url": "gmail"},
+            ),
+        )
+
+        planned_call = asyncio.run(
+            client.plan_first_action(
+                "Compose an email to alex@example.com saying I finished the demo slice.",
+                [],
+            )
+        )
+
+        self.assertEqual(planned_call.name, "email_create_draft")
+        self.assertEqual(
+            planned_call.arguments,
+            {
+                "to": "alex@example.com",
+                "body": "I finished the demo slice.",
+            },
+        )
+
     def test_extracts_code_request_arguments(self) -> None:
         self.assertEqual(
             _extract_code_request_arguments(
@@ -385,6 +549,9 @@ class OpenAICompatibleModelClientTests(unittest.TestCase):
         self.assertIn("youtube_open", system_prompt)
         self.assertIn("discord_send_message", system_prompt)
         self.assertIn("vscode_paste_code", system_prompt)
+        self.assertIn("email_create_draft", system_prompt)
+        self.assertIn("canvas_list_assignments_due_soon", system_prompt)
+        self.assertIn("accessibility_describe_screen", system_prompt)
 
     def test_falls_back_when_model_planning_fails(self) -> None:
         client = RecordingModelClient(
@@ -480,6 +647,54 @@ class OpenAICompatibleModelClientTests(unittest.TestCase):
         self.assertEqual(
             _extract_discord_message_arguments("send a message saying hello team"),
             {"text": "hello team", "open_if_needed": True},
+        )
+
+    def test_extracts_email_draft_arguments(self) -> None:
+        self.assertEqual(
+            _extract_email_draft_arguments(
+                "Compose an email to alex@example.com with subject Hackathon update "
+                "saying I finished the demo slice."
+            ),
+            {
+                "to": "alex@example.com",
+                "subject": "Hackathon update",
+                "body": "I finished the demo slice.",
+            },
+        )
+        self.assertEqual(
+            _extract_email_draft_arguments(
+                "Compose an email to example.com with the subject Nemotron OS "
+                "saying this is a draft created by Nemotron OS."
+            ),
+            {
+                "to": "example.com",
+                "subject": "Nemotron OS",
+                "body": "this is a draft created by Nemotron OS.",
+            },
+        )
+        self.assertEqual(
+            _extract_email_draft_arguments("send a message to raed@example.com saying hello"),
+            {"to": "raed@example.com", "body": "hello"},
+        )
+        self.assertIsNone(_extract_email_draft_arguments("send a message saying hello team"))
+
+    def test_extracts_accessibility_describe_arguments(self) -> None:
+        self.assertEqual(
+            _extract_accessibility_describe_arguments("Describe my active window."),
+            {"include_screenshot": True, "max_windows": 12},
+        )
+        self.assertEqual(
+            _extract_accessibility_describe_arguments(
+                "Can you give me visual context for the foreground app?"
+            ),
+            {"include_screenshot": True, "max_windows": 12},
+        )
+        self.assertEqual(
+            _extract_accessibility_describe_arguments("What am I looking at?"),
+            {"include_screenshot": True, "max_windows": 12},
+        )
+        self.assertIsNone(
+            _extract_accessibility_describe_arguments("Open Notepad and type hello.")
         )
 
 

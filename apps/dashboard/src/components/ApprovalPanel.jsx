@@ -4,8 +4,11 @@ export default function ApprovalPanel({ task, onApprove, isSubmitting }) {
   return (
     <section className="panel">
       <div className="panel-heading">
-        <h2>Approval Gate</h2>
-        <p>Medium and high risk actions stop here before the agent can continue.</p>
+        <h2>
+          <span className="nf-icon" aria-hidden="true">󰛯</span>
+          Approval gate
+        </h2>
+        <p>Risky actions pause here before the agent touches anything sensitive.</p>
       </div>
 
       {!task ? (
@@ -34,14 +37,22 @@ export default function ApprovalPanel({ task, onApprove, isSubmitting }) {
               disabled={isSubmitting}
               onClick={() => onApprove(task.id, true)}
             >
-              {isSubmitting ? "Applying..." : "Approve and apply"}
+              {isSubmitting ? (
+                "Applying..."
+              ) : (
+                <>
+                  <span className="button-icon nf-icon" aria-hidden="true">󰄬</span>
+                  <span>Approve and apply</span>
+                </>
+              )}
             </button>
             <button
               className="secondary-button"
               disabled={isSubmitting}
               onClick={() => onApprove(task.id, false)}
             >
-              Decline
+              <span className="button-icon nf-icon" aria-hidden="true">󰅖</span>
+              <span>Decline</span>
             </button>
           </div>
         </div>

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import re
+from threading import Lock
 
 import httpx
 
@@ -15,7 +17,7 @@ from .wake import extract_wake_command, has_wake_word
 
 async def run(settings: VoiceAgentSettings) -> None:
     client = AgentClient(settings)
-    speaker = build_speaker(settings.tts_mode, settings.tts_voice)
+    speaker = SerializedSpeaker(build_configured_speaker(settings))
 
     try:
         health = await client.health()
@@ -190,7 +192,7 @@ async def submit_command(
     source: str,
 ) -> None:
     print(f"Command: {command}")
-    speak_background(settings.submitted_acknowledgement, speaker)
+    speak_background(command_acknowledgement(command, settings), speaker)
     response = await client.submit_command(command, source=source)
     task = response["task"]
     print(f"Submitted task {task['id']} ({task['state']}): {task['goal']}")
@@ -208,9 +210,36 @@ async def submit_audio_command(
     transcription = response["transcription"]
     task = response["task"]
     print(f"Heard command: {transcription['text']}")
-    speak_background(settings.submitted_acknowledgement, speaker)
+    speak_background(command_acknowledgement(str(transcription["text"]), settings), speaker)
     print(f"Submitted task {task['id']} ({task['state']}): {task['goal']}")
     await speak_for_task_outcome(client, speaker, task, settings)
+
+
+def command_acknowledgement(command: str, settings: VoiceAgentSettings) -> str:
+    if is_spoken_result_command(command):
+        return settings.accessibility_acknowledgement
+    return settings.submitted_acknowledgement
+
+
+def is_spoken_result_command(command: str) -> bool:
+    lowered = command.lower()
+    return bool(
+        re.search(
+            r"\b(?:what(?:'s| is)?\s+(?:on\s+)?(?:my\s+)?screen|"
+            r"what\s+am\s+i\s+looking\s+at|what\s+do\s+you\s+see|"
+            r"(?:describe|explain|read)\s+(?:(?:my|this|the|current|active)\s+)*"
+            r"(?:screen|window|page)|"
+            r"what\s+(?:window|app|application)\s+am\s+i\s+(?:on|in|using)|"
+            r"what(?:'s| is)?\s+(?:this|the|my|active)\s+window|"
+            r"what\s+did\s+(?:you|the\s+ai|ai|the\s+agent|the\s+assistant|"
+            r"nemotron|nemotron\s*os)\s+(?:just\s+)?do|"
+            r"explain\s+what\s+(?:you|the\s+ai|ai|the\s+agent|the\s+assistant|"
+            r"nemotron|nemotron\s*os)\s+(?:just\s+)?did|"
+            r"describe\s+what\s+(?:you|the\s+ai|ai|the\s+agent|the\s+assistant|"
+            r"nemotron|nemotron\s*os)\s+(?:just\s+)?did)\b",
+            lowered,
+        )
+    )
 
 
 async def speak_for_task_outcome(
@@ -219,13 +248,57 @@ async def speak_for_task_outcome(
     task: dict,
     settings: VoiceAgentSettings,
 ) -> None:
-    final_task = await wait_for_task_outcome(
+    latest_task = await wait_for_task_outcome(
         client,
         task,
         timeout_seconds=settings.outcome_wait_seconds,
     )
+    if _is_terminal_task(latest_task):
+        message = spoken_outcome_message(latest_task, settings.acknowledgement)
+        speak_background(message, speaker)
+        return
+
+    task_id = str(latest_task.get("id") or task.get("id") or "")
+    state = str(latest_task.get("state") or task.get("state") or "unknown")
+    if task_id:
+        print(
+            f"Task {task_id} is still {state}; waiting in the background for final voice output."
+        )
+    monitor_task = asyncio.create_task(
+        speak_for_final_task_outcome(client, speaker, latest_task, settings)
+    )
+    monitor_task.add_done_callback(_consume_task_exception)
+
+
+async def speak_for_final_task_outcome(
+    client: AgentClient,
+    speaker,
+    task: dict,
+    settings: VoiceAgentSettings,
+) -> None:
+    final_task = await wait_for_task_outcome(
+        client,
+        task,
+        timeout_seconds=settings.final_outcome_wait_seconds,
+    )
+    if not _is_terminal_task(final_task):
+        task_id = str(final_task.get("id") or task.get("id") or "")
+        if task_id:
+            print(f"Task {task_id} did not finish before the final voice wait expired.")
+        return
+
     message = spoken_outcome_message(final_task, settings.acknowledgement)
-    speak_background(message, speaker)
+    await speak_async(message, speaker)
+
+
+def _is_terminal_task(task: dict) -> bool:
+    return str(task.get("state", "")) in {
+        "completed",
+        "failed",
+        "cancelled",
+        "waiting_for_approval",
+        "blocked",
+    }
 
 
 async def wait_for_task_outcome(
@@ -251,6 +324,9 @@ async def wait_for_task_outcome(
 def spoken_outcome_message(task: dict, success_acknowledgement: str) -> str:
     state = str(task.get("state", ""))
     if state == "completed":
+        voice_response = _voice_response_text(task)
+        if voice_response:
+            return voice_response
         if _is_unsupported_notify_task(task):
             return "I don't know how to do that yet."
         return ""
@@ -259,6 +335,32 @@ def spoken_outcome_message(task: dict, success_acknowledgement: str) -> str:
     if state in {"failed", "cancelled", "blocked"}:
         return "I couldn't do that."
     return "I'm working on it."
+
+
+def _voice_response_text(task: dict) -> str:
+    memory = task.get("memory")
+    if isinstance(memory, dict):
+        message = str(memory.get("voice_response_text") or "").strip()
+        if message:
+            return _fit_spoken_message(message)
+
+    result = task.get("result")
+    if isinstance(result, dict):
+        message = str(result.get("voice_response_text") or "").strip()
+        if message:
+            return _fit_spoken_message(message)
+        notify_result = result.get("notify_user")
+        if isinstance(notify_result, dict):
+            message = str(notify_result.get("message") or "").strip()
+            if message and "i do not know how to do that yet" not in message.lower():
+                return _fit_spoken_message(message)
+    return ""
+
+
+def _fit_spoken_message(message: str, max_characters: int = 900) -> str:
+    if len(message) <= max_characters:
+        return message
+    return f"{message[: max_characters - 22].rstrip()}... I can continue if you want."
 
 
 def _is_unsupported_notify_task(task: dict) -> bool:
@@ -321,7 +423,38 @@ def parse_args() -> argparse.Namespace:
         choices=["manual", "whisper_poll", "openwakeword"],
         help="Override VOICE_AGENT_WAKE_MODE for this run.",
     )
+    parser.add_argument(
+        "--test-tts",
+        nargs="?",
+        const="NemotronOS voice test. If you can hear this, text to speech is working.",
+        metavar="TEXT",
+        help="Speak a sample through the configured TTS backend, then exit.",
+    )
     return parser.parse_args()
+
+
+def build_configured_speaker(settings: VoiceAgentSettings):
+    return build_speaker(
+        tts_mode=settings.tts_mode,
+        tts_voice=settings.tts_voice,
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+        model=settings.tts_model,
+        instructions=settings.tts_instructions,
+        response_format=settings.tts_response_format,
+        speed=settings.tts_speed,
+        timeout_seconds=settings.request_timeout_seconds,
+    )
+
+
+class SerializedSpeaker:
+    def __init__(self, speaker) -> None:
+        self._speaker = speaker
+        self._lock = Lock()
+
+    def speak(self, text: str) -> None:
+        with self._lock:
+            self._speaker.speak(text)
 
 
 def main() -> None:
@@ -353,11 +486,24 @@ def main() -> None:
             request_timeout_seconds=settings.request_timeout_seconds,
             tts_mode=settings.tts_mode,
             tts_voice=settings.tts_voice,
+            tts_model=settings.tts_model,
+            tts_instructions=settings.tts_instructions,
+            tts_response_format=settings.tts_response_format,
+            tts_speed=settings.tts_speed,
+            openai_api_key=settings.openai_api_key,
+            openai_base_url=settings.openai_base_url,
             acknowledgement=settings.acknowledgement,
             submitted_acknowledgement=settings.submitted_acknowledgement,
+            accessibility_acknowledgement=settings.accessibility_acknowledgement,
             listening_acknowledgement=settings.listening_acknowledgement,
             outcome_wait_seconds=settings.outcome_wait_seconds,
+            final_outcome_wait_seconds=settings.final_outcome_wait_seconds,
         )
+
+    if args.test_tts is not None:
+        speaker = build_configured_speaker(settings)
+        speaker.speak(args.test_tts)
+        return
 
     try:
         asyncio.run(run(settings))

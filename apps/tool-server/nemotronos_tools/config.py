@@ -25,6 +25,8 @@ class ToolServerSettings:
     canvas_api_token: str
     canvas_course_aliases: dict[str, str]
     vscode_command: str
+    gmail_client_secrets_path: str = ""
+    gmail_token_path: str = ""
 
 
 def _resolve_fake_windows_root(raw_value: str) -> Path:
@@ -32,6 +34,15 @@ def _resolve_fake_windows_root(raw_value: str) -> Path:
     if not candidate.is_absolute():
         candidate = (APP_DIR / candidate).resolve()
     return candidate
+
+
+def _resolve_project_path(raw_value: str) -> str:
+    if not raw_value.strip():
+        return ""
+    candidate = Path(raw_value).expanduser()
+    if not candidate.is_absolute():
+        candidate = (PROJECT_ROOT / candidate).resolve()
+    return str(candidate)
 
 
 def get_settings() -> ToolServerSettings:
@@ -55,6 +66,12 @@ def get_settings() -> ToolServerSettings:
         canvas_api_token=os.getenv("CANVAS_API_TOKEN", ""),
         canvas_course_aliases=_canvas_course_aliases(),
         vscode_command=os.getenv("VSCODE_COMMAND", "code"),
+        gmail_client_secrets_path=_resolve_project_path(
+            os.getenv("GMAIL_CLIENT_SECRETS_PATH", "")
+        ),
+        gmail_token_path=_resolve_project_path(
+            os.getenv("GMAIL_TOKEN_PATH", ".secrets/gmail_token.json")
+        ),
     )
 
 

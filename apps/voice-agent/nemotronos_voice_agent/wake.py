@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 
+WAKE_COMMAND_SEPARATOR_CHARS = " \t\n\r,.:;-?!\"'()[]{}"
+
+
 def extract_wake_command(transcript: str, wake_words: tuple[str, ...]) -> str | None:
     normalized_transcript = transcript.strip()
     span = find_wake_word_span(normalized_transcript, wake_words)
@@ -8,8 +11,8 @@ def extract_wake_command(transcript: str, wake_words: tuple[str, ...]) -> str | 
         return None
 
     _, end = span
-    command = normalized_transcript[end:].lstrip(" \t\n\r,.:;-")
-    if command:
+    command = normalized_transcript[end:].lstrip(WAKE_COMMAND_SEPARATOR_CHARS)
+    if command.strip(WAKE_COMMAND_SEPARATOR_CHARS):
         return command
 
     return None

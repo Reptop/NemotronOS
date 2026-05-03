@@ -10,12 +10,20 @@ class DesktopBackend(ABC):
         """Return a platform-specific screen capture payload."""
 
     @abstractmethod
+    def describe_screen(self, include_screenshot: bool, max_windows: int) -> dict[str, Any]:
+        """Return structured accessibility context for the current desktop."""
+
+    @abstractmethod
     def launch_app(self, app_name: str) -> dict[str, Any]:
         """Launch an allowlisted desktop application."""
 
     @abstractmethod
     def type_text(self, text: str) -> dict[str, Any]:
         """Type text into the currently focused desktop application."""
+
+    @abstractmethod
+    def create_sticky_note(self, text: str) -> dict[str, Any]:
+        """Create a local desktop sticky note containing text."""
 
     @abstractmethod
     def open_code_editor(

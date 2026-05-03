@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from nemotronos_tools.tools.desktop_actions import (
+    accessibility_describe_screen,
     build_youtube_url,
     choose_youtube_thumbnail_candidate,
     canvas_open_course,
@@ -13,9 +14,11 @@ from nemotronos_tools.tools.desktop_actions import (
     normalize_browser_target,
     normalize_youtube_url,
     resolve_canvas_course,
+    sticky_note_create,
     vscode_paste_code,
     youtube_search_url,
 )
+from nemotronos_tools.tools.canvas import canvas_list_assignments_due_soon
 from nemotronos_tools.tools.desktop_base import DesktopBackend
 
 
@@ -27,6 +30,22 @@ class RecordingDesktopBackend(DesktopBackend):
         self.calls.append(("capture_screen", None))
         return {"image_ref": "mock://screen/latest"}
 
+    def describe_screen(self, include_screenshot: bool, max_windows: int) -> dict:
+        self.calls.append(
+            (
+                "describe_screen",
+                {
+                    "include_screenshot": include_screenshot,
+                    "max_windows": max_windows,
+                },
+            )
+        )
+        return {
+            "mode": "test",
+            "foreground_window": {"title": "Canvas - Assignments"},
+            "visible_windows": [{"title": "Canvas - Assignments"}],
+        }
+
     def launch_app(self, app_name: str) -> dict:
         self.calls.append(("launch_app", app_name))
         return {"mode": "test", "app_name": app_name, "launched": True, "focused": True}
@@ -34,6 +53,16 @@ class RecordingDesktopBackend(DesktopBackend):
     def type_text(self, text: str) -> dict:
         self.calls.append(("type_text", text))
         return {"mode": "test", "typed": True, "characters": len(text)}
+
+    def create_sticky_note(self, text: str) -> dict:
+        self.calls.append(("create_sticky_note", text))
+        return {
+            "mode": "test",
+            "app_name": "sticky_notes",
+            "created": True,
+            "inserted": True,
+            "characters": len(text),
+        }
 
     def open_code_editor(
         self,
@@ -96,6 +125,28 @@ class DesktopActionTests(unittest.TestCase):
         self.assertEqual(
             normalize_browser_target("canvas"),
             "https://canvas.oregonstate.edu/",
+        )
+
+    def test_accessibility_describe_screen_uses_desktop_backend(self) -> None:
+        backend = RecordingDesktopBackend()
+
+        result = accessibility_describe_screen(
+            {"include_screenshot": False, "max_windows": 4},
+            backend,
+        )
+
+        self.assertEqual(result["foreground_window"]["title"], "Canvas - Assignments")
+        self.assertEqual(
+            backend.calls,
+            [
+                (
+                    "describe_screen",
+                    {
+                        "include_screenshot": False,
+                        "max_windows": 4,
+                    },
+                )
+            ],
         )
 
     def test_adds_https_to_domains(self) -> None:
@@ -205,6 +256,14 @@ class DesktopActionTests(unittest.TestCase):
             ],
         )
 
+    def test_sticky_note_create_uses_desktop_backend(self) -> None:
+        backend = RecordingDesktopBackend()
+
+        result = sticky_note_create({"text": "Canvas TODO"}, backend)
+
+        self.assertTrue(result["created"])
+        self.assertEqual(backend.calls, [("create_sticky_note", "Canvas TODO")])
+
     def test_resolves_canvas_course_from_alias(self) -> None:
         resolution = resolve_canvas_course(
             "intro to AI",
@@ -233,6 +292,17 @@ class DesktopActionTests(unittest.TestCase):
             backend.calls,
             [("open_browser", "https://canvas.oregonstate.edu/courses")],
         )
+
+    def test_canvas_assignments_reports_missing_api_token(self) -> None:
+        result = canvas_list_assignments_due_soon(
+            {"days_ahead": 7},
+            "https://canvas.oregonstate.edu",
+            "",
+        )
+
+        self.assertTrue(result["needs_canvas_api_token"])
+        self.assertEqual(result["assignment_count"], 0)
+        self.assertEqual(result["days_ahead"], 7)
 
     def test_detects_visible_youtube_thumbnail_from_screenshot(self) -> None:
         from PIL import Image, ImageDraw

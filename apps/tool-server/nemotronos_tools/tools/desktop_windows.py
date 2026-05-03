@@ -41,6 +41,7 @@ GMEM_MOVEABLE = 0x0002
 VK_CONTROL = 0x11
 VK_ESCAPE = 0x1B
 VK_RETURN = 0x0D
+VK_N = 0x4E
 VK_V = 0x56
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
@@ -113,6 +114,14 @@ if IS_WINDOWS_RUNTIME:
     USER32.SetCursorPos.restype = wintypes.BOOL
     USER32.GetForegroundWindow.argtypes = []
     USER32.GetForegroundWindow.restype = wintypes.HWND
+    USER32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+    USER32.GetWindowTextLengthW.restype = ctypes.c_int
+    USER32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    USER32.GetWindowTextW.restype = ctypes.c_int
+    USER32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    USER32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    USER32.IsWindowVisible.argtypes = [wintypes.HWND]
+    USER32.IsWindowVisible.restype = wintypes.BOOL
     USER32.GetSystemMetrics.argtypes = [ctypes.c_int]
     USER32.GetSystemMetrics.restype = ctypes.c_int
     USER32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
@@ -172,6 +181,39 @@ class WindowsDesktopBackend(DesktopBackend):
             "height": height,
             "virtual_screen_origin": virtual_screen_origin,
             **({"foreground_window": foreground_window} if foreground_window else {}),
+        }
+
+    def describe_screen(self, include_screenshot: bool, max_windows: int) -> dict[str, Any]:
+        self._ensure_windows_runtime()
+        captured_at = datetime.now(timezone.utc).isoformat()
+        max_windows = max(1, min(int(max_windows), 30))
+        foreground_window = self._foreground_window_info()
+        visible_windows = self._visible_windows(max_windows)
+
+        screenshot_payload: dict[str, Any] = {}
+        if include_screenshot:
+            try:
+                screenshot_payload = {"screenshot": self.capture_screen()}
+            except Exception as exc:  # noqa: BLE001 - accessibility context can still help
+                screenshot_payload = {"screenshot_error": str(exc)}
+
+        return {
+            "mode": "windows",
+            "captured_at": captured_at,
+            "foreground_window": foreground_window,
+            "visible_windows": visible_windows,
+            "focused_element": {
+                "role": "window",
+                "name": foreground_window.get("title") or "Unknown foreground window",
+            },
+            "ui_automation": {
+                "available": False,
+                "note": (
+                    "This MVP currently reports window-level desktop context. "
+                    "A deeper Windows UI Automation element tree is the next accessibility step."
+                ),
+            },
+            **screenshot_payload,
         }
 
     def launch_app(self, app_name: str) -> dict[str, Any]:
@@ -251,6 +293,55 @@ class WindowsDesktopBackend(DesktopBackend):
             "focused_last_app": focused,
             "characters": len(text),
             "typed_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def create_sticky_note(self, text: str) -> dict[str, Any]:
+        self._ensure_windows_runtime()
+        if not text.strip():
+            raise ValueError("sticky_note_create requires non-empty text.")
+
+        process = subprocess.Popen(  # noqa: S603
+            ["explorer.exe", "ms-stikynotes:"],
+            close_fds=True,
+        )
+        self._last_process_id = None
+        self._last_window_title_hint = "sticky"
+        time.sleep(1.5)
+        focused = self._focus_window_by_title_with_retry("sticky notes")
+        if not focused:
+            focused = self._focus_window_by_title_with_retry("sticky")
+
+        if focused:
+            time.sleep(0.2)
+            self._send_hotkey([VK_CONTROL, VK_N])
+            time.sleep(0.25)
+            self._paste_text(text)
+            return {
+                "mode": "windows",
+                "app_name": "sticky_notes",
+                "pid": process.pid,
+                "created": True,
+                "focused": True,
+                "inserted": True,
+                "input_method": "clipboard_paste",
+                "characters": len(text),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+        fallback_launch = self.launch_app("notepad")
+        fallback_type = self.type_text(text)
+        return {
+            "mode": "windows",
+            "app_name": "notepad",
+            "created": True,
+            "inserted": True,
+            "input_method": fallback_type.get("input_method", "clipboard_paste"),
+            "characters": len(text),
+            "fallback_reason": "Sticky Notes did not expose a focusable window.",
+            "sticky_notes_pid": process.pid,
+            "launch_result": fallback_launch,
+            "type_result": fallback_type,
+            "created_at": datetime.now(timezone.utc).isoformat(),
         }
 
     def open_code_editor(
@@ -536,6 +627,69 @@ class WindowsDesktopBackend(DesktopBackend):
             "right": int(rect.right),
             "bottom": int(rect.bottom),
         }
+
+    def _foreground_window_info(self) -> dict[str, Any]:
+        hwnd = USER32.GetForegroundWindow()
+        if not hwnd:
+            return {
+                "title": "",
+                "process_id": None,
+                "bounds": None,
+            }
+        return {
+            "title": self._window_title(hwnd),
+            "process_id": self._window_process_id(hwnd),
+            "bounds": self._window_rect(hwnd),
+        }
+
+    def _visible_windows(self, max_windows: int) -> list[dict[str, Any]]:
+        windows: list[dict[str, Any]] = []
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def enum_window(hwnd: int, lparam: int) -> bool:
+            del lparam
+            if len(windows) >= max_windows:
+                return False
+            if not USER32.IsWindowVisible(hwnd):
+                return True
+            title = self._window_title(hwnd)
+            if not title:
+                return True
+            windows.append(
+                {
+                    "title": title,
+                    "process_id": self._window_process_id(hwnd),
+                    "bounds": self._window_rect(hwnd),
+                }
+            )
+            return True
+
+        USER32.EnumWindows(enum_window, 0)
+        return windows
+
+    def _window_rect(self, hwnd: int) -> dict[str, int] | None:
+        rect = wintypes.RECT()
+        if not USER32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            return None
+        return {
+            "left": int(rect.left),
+            "top": int(rect.top),
+            "right": int(rect.right),
+            "bottom": int(rect.bottom),
+        }
+
+    def _window_title(self, hwnd: int) -> str:
+        title_length = USER32.GetWindowTextLengthW(hwnd)
+        if title_length <= 0:
+            return ""
+        buffer = ctypes.create_unicode_buffer(title_length + 1)
+        USER32.GetWindowTextW(hwnd, buffer, title_length + 1)
+        return buffer.value.strip()
+
+    def _window_process_id(self, hwnd: int) -> int | None:
+        process_id = wintypes.DWORD()
+        USER32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
+        return int(process_id.value) if process_id.value else None
 
     def _virtual_screen_origin(self) -> dict[str, int]:
         return {

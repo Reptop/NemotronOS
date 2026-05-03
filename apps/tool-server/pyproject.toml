@@ -9,6 +9,8 @@ description = "Mock and future Windows tool server for NemotronOS"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.110.0",
+  "google-api-python-client>=2.130.0",
+  "google-auth-oauthlib>=1.2.0",
   "pillow>=10.3.0",
   "playwright>=1.52.0",
   "pydantic>=2.7.0",

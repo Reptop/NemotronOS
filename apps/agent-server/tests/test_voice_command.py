@@ -45,6 +45,16 @@ class VoiceCommandTests(unittest.TestCase):
             "open notepad",
         )
 
+    def test_ignores_punctuation_only_after_wake_word(self) -> None:
+        self.assertIsNone(extract_wake_command("Computer?"))
+        self.assertIsNone(extract_wake_command("Jarvis?!"))
+
+    def test_skips_punctuation_before_wake_command(self) -> None:
+        self.assertEqual(
+            extract_wake_command("Computer? open notepad"),
+            "open notepad",
+        )
+
     def test_ignores_partial_wake_word(self) -> None:
         self.assertIsNone(extract_wake_command("mycomputer open notepad"))
 

@@ -42,6 +42,22 @@ def tool_definitions() -> list[dict[str, Any]]:
             "parameters": {"type": "object", "properties": {}},
         },
         {
+            "name": "accessibility_describe_screen",
+            "description": (
+                "Return structured accessibility context for the current desktop: "
+                "foreground window, visible windows, focused element summary, and "
+                "optional screenshot metadata. Use this for screen narration, "
+                "blind/low-vision assistance, or commands like 'what am I looking at'."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "include_screenshot": {"type": "boolean"},
+                    "max_windows": {"type": "integer"},
+                },
+            },
+        },
+        {
             "name": "mouse_click",
             "description": "Click on a UI target.",
             "parameters": {
@@ -60,6 +76,22 @@ def tool_definitions() -> list[dict[str, Any]]:
             "parameters": {
                 "type": "object",
                 "properties": {"text": {"type": "string"}},
+                "required": ["text"],
+            },
+        },
+        {
+            "name": "sticky_note_create",
+            "description": (
+                "Create a local Windows Sticky Notes note containing the provided text. "
+                "If Sticky Notes cannot be focused, the Windows backend may fall back "
+                "to a fresh Notepad note."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "title": {"type": "string"},
+                },
                 "required": ["text"],
             },
         },
@@ -271,6 +303,62 @@ def tool_definitions() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {"course_query": {"type": "string"}},
                 "required": ["course_query"],
+            },
+        },
+        {
+            "name": "canvas_list_assignments_due_soon",
+            "description": (
+                "List Canvas assignments due within a configurable number of days using "
+                "the Canvas API. Use this for requests about Canvas assignments, homework, "
+                "to-do items, or due dates. The coordinator can turn the result into a "
+                "sticky note when requested."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "days_ahead": {"type": "integer"},
+                    "course_query": {"type": "string"},
+                    "course_id": {"type": "string"},
+                    "course_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "include_completed": {"type": "boolean"},
+                },
+            },
+        },
+        {
+            "name": "email_create_draft",
+            "description": (
+                "Create a Gmail draft through the Gmail API. This never sends email. "
+                "Use it for compose, write, draft, or send-email requests; NemotronOS "
+                "must create a draft only and tell the user it has not been sent."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "to": {
+                        "oneOf": [
+                            {"type": "string"},
+                            {"type": "array", "items": {"type": "string"}},
+                        ]
+                    },
+                    "cc": {
+                        "oneOf": [
+                            {"type": "string"},
+                            {"type": "array", "items": {"type": "string"}},
+                        ]
+                    },
+                    "bcc": {
+                        "oneOf": [
+                            {"type": "string"},
+                            {"type": "array", "items": {"type": "string"}},
+                        ]
+                    },
+                    "subject": {"type": "string"},
+                    "body": {"type": "string"},
+                },
+                "required": ["to", "body"],
             },
         },
         {

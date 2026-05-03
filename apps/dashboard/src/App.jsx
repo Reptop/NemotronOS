@@ -531,35 +531,72 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <header className="hero">
-        <div>
-          <p className="eyebrow">NemotronOS</p>
-          <h1>Private PC agent control room</h1>
-          <p className="hero-copy">
-            Develop the Windows-first agent core on macOS today, then swap in
-            NIM and real desktop tools later.
-          </p>
+      <header className="app-header">
+        <div className="brand-panel">
+          <div className="brand-mark" aria-hidden="true">
+            󰚩
+          </div>
+          <div className="brand-copy">
+            <p className="eyebrow">NemotronOS</p>
+            <h1>Agent command center</h1>
+            <p className="hero-copy">
+              Voice commands, approvals, desktop tools, and live traces for the Windows demo.
+            </p>
+            <div className="system-line" aria-label="Demo capabilities">
+              <span>
+                <span className="nf-icon" aria-hidden="true">󰣇</span>
+                Local NIM
+              </span>
+              <span>
+                <span className="nf-icon" aria-hidden="true">󰒓</span>
+                Windows tools
+              </span>
+              <span>
+                <span className="nf-icon" aria-hidden="true">󰛯</span>
+                Approval gates
+              </span>
+            </div>
+          </div>
         </div>
 
         <form className="task-form" onSubmit={handleSubmit}>
-          <label htmlFor="goal">New task</label>
+          <div className="form-heading">
+            <label htmlFor="goal">Command</label>
+            <span>Live stack</span>
+          </div>
           <textarea
             id="goal"
             value={goal}
             onChange={(event) => setGoal(event.target.value)}
             rows={4}
           />
-          <button className="primary-button" disabled={isSubmitting} type="submit">
-            {isSubmitting ? "Submitting..." : "Submit task"}
-          </button>
-          <button
-            className="secondary-button"
-            disabled={isResettingDemo}
-            onClick={handleResetDemo}
-            type="button"
-          >
-            {isResettingDemo ? "Resetting..." : "Reset demo files"}
-          </button>
+          <div className="command-actions">
+            <button className="primary-button" disabled={isSubmitting} type="submit">
+              {isSubmitting ? (
+                "Submitting..."
+              ) : (
+                <>
+                  <span className="button-icon nf-icon" aria-hidden="true">󰒊</span>
+                  <span>Run task</span>
+                </>
+              )}
+            </button>
+            <button
+              className="secondary-button"
+              disabled={isResettingDemo}
+              onClick={handleResetDemo}
+              type="button"
+            >
+              {isResettingDemo ? (
+                "Resetting..."
+              ) : (
+                <>
+                  <span className="button-icon nf-icon" aria-hidden="true">󰑓</span>
+                  <span>Reset demo files</span>
+                </>
+              )}
+            </button>
+          </div>
           <div className="voice-actions">
             <button
               aria-keyshortcuts="Control+Shift+Space"
@@ -568,7 +605,17 @@ export default function App() {
               onClick={isRecordingVoice ? handleStopVoice : handleStartVoice}
               type="button"
             >
-              {isRecordingVoice ? "Stop voice" : "Record voice command"}
+              {isRecordingVoice ? (
+                <>
+                  <span className="button-icon nf-icon" aria-hidden="true">󰍭</span>
+                  <span>Stop voice</span>
+                </>
+              ) : (
+                <>
+                  <span className="button-icon nf-icon" aria-hidden="true">󰍬</span>
+                  <span>Record voice</span>
+                </>
+              )}
             </button>
             <button
               className={isWakeListening ? "primary-button" : "secondary-button"}
@@ -576,10 +623,16 @@ export default function App() {
               onClick={handleToggleWakeWords}
               type="button"
             >
-              {isWakeListening ? "Wake words active" : "Enable wake words"}
+              <span className="button-icon nf-icon" aria-hidden="true">󰻂</span>
+              <span>{isWakeListening ? "Wake active" : "Wake words"}</span>
             </button>
-            {isSubmittingVoice ? <span>Transcribing...</span> : null}
-            {lastTranscript ? <p>Last transcript: {lastTranscript}</p> : null}
+            {isSubmittingVoice ? <span className="inline-status">Transcribing...</span> : null}
+            {lastTranscript ? (
+              <p className="transcript">
+                <span>Last transcript</span>
+                {lastTranscript}
+              </p>
+            ) : null}
           </div>
         </form>
       </header>

@@ -82,6 +82,10 @@ class CoordinatorVSCodeTests(unittest.TestCase):
         self.assertEqual(worker.calls[0][1]["code"], "print('hello from vscode')\n")
         self.assertEqual(worker.calls[0][1]["code_ref"], "task.memory.generated_code")
         self.assertTrue(worker.calls[0][1]["open_new_window"])
+        self.assertEqual(
+            updated_task.memory["voice_response_text"],
+            "I opened VS Code and inserted the generated Python code.",
+        )
 
 
 if __name__ == "__main__":

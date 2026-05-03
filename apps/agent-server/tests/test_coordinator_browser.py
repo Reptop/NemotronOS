@@ -121,6 +121,14 @@ class CoordinatorBrowserTests(unittest.TestCase):
             [call[0] for call in worker.calls],
             ["browser_session_ensure", "browser_click", "notify_user"],
         )
+        self.assertEqual(
+            completed_task.memory["voice_response_text"],
+            "Browser task complete.",
+        )
+        self.assertEqual(
+            completed_task.result["voice_response_text"],
+            "Browser task complete.",
+        )
 
 
 if __name__ == "__main__":
