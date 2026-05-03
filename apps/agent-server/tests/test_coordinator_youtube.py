@@ -50,7 +50,7 @@ class _Worker:
 
 
 class CoordinatorYouTubeTests(unittest.TestCase):
-    def test_youtube_search_auto_clicks_first_result(self) -> None:
+    def test_youtube_search_auto_clicks_first_video_result(self) -> None:
         task_store = TaskStore()
         worker = _Worker()
         coordinator = AgentCoordinator(
@@ -70,7 +70,7 @@ class CoordinatorYouTubeTests(unittest.TestCase):
         self.assertEqual(updated_task.state, "completed")
         self.assertEqual(worker.calls[0][0], "youtube_open")
         self.assertEqual(worker.calls[1][0], "youtube_click_video")
-        self.assertEqual(worker.calls[1][1]["selection"], "first_result")
+        self.assertEqual(worker.calls[1][1]["selection"], "first_video_result")
 
 
 if __name__ == "__main__":

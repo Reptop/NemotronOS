@@ -252,7 +252,7 @@ class AgentCoordinator:
         youtube_arguments: dict[str, Any],
     ) -> dict[str, Any]:
         action = str(youtube_arguments.get("action", "")).strip().lower()
-        selection = "random_visible" if action == "random" else "first_result"
+        selection = "random_visible" if action == "random" else "first_video_result"
         arguments = {
             "selection": selection,
             "wait_seconds": 5.0,

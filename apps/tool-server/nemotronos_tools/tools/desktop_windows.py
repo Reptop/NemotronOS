@@ -25,6 +25,7 @@ ALLOWED_APPS: dict[str, str] = {
     "calc": "calc.exe",
     "paint": "mspaint.exe",
     "mspaint": "mspaint.exe",
+    "discord": "discord:",
 }
 
 INPUT_KEYBOARD = 1
@@ -37,6 +38,8 @@ SW_RESTORE = 9
 CF_UNICODETEXT = 13
 GMEM_MOVEABLE = 0x0002
 VK_CONTROL = 0x11
+VK_ESCAPE = 0x1B
+VK_RETURN = 0x0D
 VK_V = 0x56
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
@@ -151,8 +154,12 @@ class WindowsDesktopBackend(DesktopBackend):
         captured_at = datetime.now(timezone.utc).isoformat()
         try:
             foreground_window = self._foreground_window_rect()
-        except OSError:
+        except Exception:  # noqa: BLE001 - screenshot metadata should not block capture success
             foreground_window = None
+        try:
+            virtual_screen_origin = self._virtual_screen_origin()
+        except Exception:  # noqa: BLE001 - fallback for non-Windows test environments
+            virtual_screen_origin = {"x": 0, "y": 0}
         return {
             "mode": "windows",
             "captured": True,
@@ -162,7 +169,7 @@ class WindowsDesktopBackend(DesktopBackend):
             "mime_type": "image/png",
             "width": width,
             "height": height,
-            "virtual_screen_origin": self._virtual_screen_origin(),
+            "virtual_screen_origin": virtual_screen_origin,
             **({"foreground_window": foreground_window} if foreground_window else {}),
         }
 
@@ -176,6 +183,25 @@ class WindowsDesktopBackend(DesktopBackend):
 
         launch_args = [executable]
         document_path: Path | None = None
+        if normalized_name == "discord":
+            process = subprocess.Popen(  # noqa: S603
+                ["explorer.exe", executable],
+                close_fds=True,
+            )
+            self._last_process_id = None
+            self._last_window_title_hint = "discord"
+            time.sleep(1.5)
+            focused = self._focus_window_by_title_with_retry("discord")
+            return {
+                "mode": "windows",
+                "app_name": normalized_name,
+                "executable": executable,
+                "pid": process.pid,
+                "launched": True,
+                "focused": focused,
+                "launched_at": datetime.now(timezone.utc).isoformat(),
+            }
+
         if normalized_name == "notepad":
             document_path = self._create_notepad_document()
             launch_args.append(str(document_path))
@@ -226,6 +252,24 @@ class WindowsDesktopBackend(DesktopBackend):
             "typed_at": datetime.now(timezone.utc).isoformat(),
         }
 
+    def press_enter(self) -> dict[str, Any]:
+        self._ensure_windows_runtime()
+        self._send_hotkey([VK_RETURN])
+        return {
+            "mode": "windows",
+            "pressed": "enter",
+            "pressed_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def press_escape(self) -> dict[str, Any]:
+        self._ensure_windows_runtime()
+        self._send_hotkey([VK_ESCAPE])
+        return {
+            "mode": "windows",
+            "pressed": "escape",
+            "pressed_at": datetime.now(timezone.utc).isoformat(),
+        }
+
     def open_browser(self, url: str) -> dict[str, Any]:
         self._ensure_windows_runtime()
         opened = webbrowser.open(url, new=2, autoraise=True)
@@ -246,6 +290,9 @@ class WindowsDesktopBackend(DesktopBackend):
             raise ValueError("focus_window requires title_hint.")
 
         focused = self._focus_window_by_title_with_retry(cleaned_hint)
+        if focused:
+            self._last_process_id = None
+            self._last_window_title_hint = cleaned_hint
         return {
             "mode": "windows",
             "focused": focused,

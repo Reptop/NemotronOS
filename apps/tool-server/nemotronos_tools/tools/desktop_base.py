@@ -18,6 +18,14 @@ class DesktopBackend(ABC):
         """Type text into the currently focused desktop application."""
 
     @abstractmethod
+    def press_enter(self) -> dict[str, Any]:
+        """Press Enter in the currently focused desktop application."""
+
+    @abstractmethod
+    def press_escape(self) -> dict[str, Any]:
+        """Press Escape in the currently focused desktop application."""
+
+    @abstractmethod
     def open_browser(self, url: str) -> dict[str, Any]:
         """Open the default browser to an http(s) URL."""
 

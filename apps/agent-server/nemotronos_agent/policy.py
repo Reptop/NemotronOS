@@ -39,7 +39,7 @@ class PolicyEngine:
 
         if tool_name == "app_launch":
             app_name = str(arguments.get("app_name", "")).strip().lower()
-            if app_name not in {"notepad", "calculator", "calc", "paint", "mspaint"}:
+            if app_name not in {"notepad", "calculator", "calc", "paint", "mspaint", "discord"}:
                 return PolicyDecision(
                     tool_name=tool_name,
                     risk_level="medium",
@@ -51,6 +51,25 @@ class PolicyEngine:
                 risk_level="low",
                 allowed=True,
                 reason="Launching an allowlisted local demo app is low risk.",
+            )
+
+        if tool_name == "discord_send_message":
+            text = str(arguments.get("text", ""))
+            if len(text) > 1000:
+                return PolicyDecision(
+                    tool_name=tool_name,
+                    risk_level="medium",
+                    allowed=False,
+                    reason="Discord messages are limited to 1000 characters in the demo path.",
+                )
+            return PolicyDecision(
+                tool_name=tool_name,
+                risk_level="medium",
+                allowed=True,
+                reason=(
+                    "Sending a Discord message changes external chat state and is limited "
+                    "to the currently active conversation."
+                ),
             )
 
         if tool_name == "keyboard_type":
@@ -77,7 +96,7 @@ class PolicyEngine:
                 reason="Mouse clicks change desktop/browser state and are limited to demo interactions.",
             )
 
-        if tool_name in {"browser_open", "youtube_open"}:
+        if tool_name in {"browser_open", "youtube_open", "canvas_open_course"}:
             raw_url = str(arguments.get("url", "")).strip()
             if tool_name == "youtube_open":
                 raw_url = str(arguments.get("video_url", "") or raw_url).strip()
@@ -107,6 +126,8 @@ class PolicyEngine:
                     )
             if tool_name == "browser_open":
                 reason = "Opening a browser URL is a low-risk navigation action."
+            elif tool_name == "canvas_open_course":
+                reason = "Opening Canvas course pages is a low-risk navigation action."
             else:
                 reason = "Opening YouTube search/video URLs is a low-risk navigation action."
             return PolicyDecision(

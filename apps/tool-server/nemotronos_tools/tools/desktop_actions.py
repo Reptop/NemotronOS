@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import json
 import random
+import re
 import time
-from urllib.parse import quote_plus, urlparse
+from difflib import SequenceMatcher
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote_plus, urlparse
+from urllib.request import Request, urlopen
 
 from .desktop_base import DesktopBackend
 
@@ -51,6 +56,7 @@ YOUTUBE_RECOMMENDED_CLICK_POINTS = (
 )
 
 YOUTUBE_THUMBNAIL_ASPECT_RATIO = 16 / 9
+YOUTUBE_VIDEO_FILTER = "EgIQAQ%253D%253D"
 
 
 def app_launch(arguments: dict[str, Any], desktop_backend: DesktopBackend) -> dict[str, Any]:
@@ -67,6 +73,45 @@ def keyboard_type(arguments: dict[str, Any], desktop_backend: DesktopBackend) ->
         raise ValueError("keyboard_type requires text.")
 
     return desktop_backend.type_text(text)
+
+
+def discord_send_message(
+    arguments: dict[str, Any],
+    desktop_backend: DesktopBackend,
+) -> dict[str, Any]:
+    text = str(arguments.get("text", "")).strip()
+    if not text:
+        raise ValueError("discord_send_message requires text.")
+
+    open_if_needed = bool(arguments.get("open_if_needed", True))
+    focus_result = desktop_backend.focus_window("discord")
+    launch_result: dict[str, Any] | None = None
+    if not focus_result.get("focused") and open_if_needed:
+        launch_result = desktop_backend.launch_app("discord")
+        time.sleep(1.0)
+        focus_result = desktop_backend.focus_window("discord")
+
+    if not focus_result.get("focused"):
+        raise RuntimeError(
+            "Discord is not focused. Open Discord to the target chat first, then retry."
+        )
+
+    escape_result = desktop_backend.press_escape()
+    time.sleep(0.1)
+    typed_result = desktop_backend.type_text(text)
+    time.sleep(0.15)
+    enter_result = desktop_backend.press_enter()
+    return {
+        "mode": typed_result.get("mode", "unknown"),
+        "site": "discord",
+        "sent": True,
+        "characters": len(text),
+        "focus_result": focus_result,
+        **({"launch_result": launch_result} if launch_result else {}),
+        "escape_result": escape_result,
+        "typed_result": typed_result,
+        "enter_result": enter_result,
+    }
 
 
 def mouse_click(arguments: dict[str, Any], desktop_backend: DesktopBackend) -> dict[str, Any]:
@@ -93,17 +138,48 @@ def browser_open(arguments: dict[str, Any], desktop_backend: DesktopBackend) -> 
     return desktop_backend.open_browser(url)
 
 
+def canvas_open_course(
+    arguments: dict[str, Any],
+    desktop_backend: DesktopBackend,
+    canvas_base_url: str,
+    course_aliases: dict[str, str] | None = None,
+    canvas_api_token: str = "",
+) -> dict[str, Any]:
+    course_query = str(
+        arguments.get("course_query") or arguments.get("course") or arguments.get("query") or ""
+    ).strip()
+    if not course_query:
+        raise ValueError("canvas_open_course requires course_query.")
+
+    resolution = resolve_canvas_course(
+        course_query=course_query,
+        canvas_base_url=canvas_base_url,
+        course_aliases=course_aliases or {},
+        canvas_api_token=canvas_api_token,
+    )
+    result = desktop_backend.open_browser(resolution["url"])
+    return {
+        **result,
+        "site": "canvas",
+        "action": "open_course",
+        "course_query": course_query,
+        **resolution,
+    }
+
+
 def youtube_open(arguments: dict[str, Any], desktop_backend: DesktopBackend) -> dict[str, Any]:
     action = str(arguments.get("action") or "home").strip().lower()
     query = str(arguments.get("query") or "").strip()
     video_url = str(arguments.get("video_url") or arguments.get("url") or "").strip()
     video_id = str(arguments.get("video_id") or "").strip()
+    prefer_video_results = bool(arguments.get("prefer_video_results", False))
 
     url, resolved_action, resolved_query = build_youtube_url(
         action=action,
         query=query,
         video_url=video_url,
         video_id=video_id,
+        prefer_video_results=prefer_video_results,
     )
     result = desktop_backend.open_browser(url)
     return {
@@ -111,6 +187,7 @@ def youtube_open(arguments: dict[str, Any], desktop_backend: DesktopBackend) -> 
         "site": "youtube",
         "action": resolved_action,
         **({"query": resolved_query} if resolved_query else {}),
+        **({"prefer_video_results": True} if prefer_video_results else {}),
     }
 
 
@@ -135,15 +212,15 @@ def youtube_click_video(
     if screenshot_result is not None:
         return screenshot_result
 
-    if selection in {"first_result", "first", "search_result"}:
+    if selection in {"first_result", "first", "search_result", "first_video_result"}:
         x_ratio, y_ratio = (0.34, 0.34)
-        heuristic = "first YouTube search result"
+        heuristic = "first YouTube video result"
     elif selection in {"random_visible", "recommended", "random_recommended"}:
         x_ratio, y_ratio = random.choice(YOUTUBE_RECOMMENDED_CLICK_POINTS)
         heuristic = "random visible YouTube recommendation grid point"
     else:
         raise ValueError(
-            "youtube_click_video selection must be first_result or random_visible."
+            "youtube_click_video selection must be first_result, first_video_result, or random_visible."
         )
 
     result = desktop_backend.click_foreground_relative(x_ratio, y_ratio)
@@ -207,12 +284,52 @@ def choose_youtube_thumbnail_candidate(
         if float(candidate.get("score", 0.0)) >= max(35.0, max_score * 0.80)
     ]
     sorted_candidates = sorted(strong_candidates or candidates, key=lambda item: (item["top"], item["left"]))
-    if selection in {"first_result", "first", "search_result"}:
-        return sorted_candidates[0]
+    if selection in {"first_video_result", "first_result", "first", "search_result"}:
+        first_video = _choose_first_video_result_candidate(sorted_candidates, candidates)
+        return first_video or sorted_candidates[0]
     if selection in {"random_visible", "recommended", "random_recommended"}:
         pool = sorted_candidates[: min(9, len(sorted_candidates))]
         return random.choice(pool)
-    raise ValueError("youtube_click_video selection must be first_result or random_visible.")
+    raise ValueError(
+        "youtube_click_video selection must be first_result, first_video_result, or random_visible."
+    )
+
+
+def _choose_first_video_result_candidate(
+    sorted_candidates: list[dict[str, Any]],
+    all_candidates: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not all_candidates:
+        return None
+
+    # A direct channel search often renders a channel card above the first playable
+    # video. Keep all detected thumbnail candidates and choose the first wide video
+    # thumbnail by page order, instead of choosing the highest-color candidate lower
+    # on the page.
+    video_candidates = [
+        candidate
+        for candidate in all_candidates
+        if _candidate_aspect_ratio(candidate) >= 1.45
+    ]
+    if not video_candidates:
+        video_candidates = [
+            candidate
+            for candidate in sorted_candidates
+            if _candidate_aspect_ratio(candidate) >= 1.45
+        ]
+    if not video_candidates:
+        return sorted_candidates[0] if sorted_candidates else None
+
+    return sorted(
+        video_candidates,
+        key=lambda item: (int(item["top"]), int(item["left"]), -float(item.get("score", 0.0))),
+    )[0]
+
+
+def _candidate_aspect_ratio(candidate: dict[str, Any]) -> float:
+    width = max(1, int(candidate["right"]) - int(candidate["left"]))
+    height = max(1, int(candidate["bottom"]) - int(candidate["top"]))
+    return width / height
 
 
 def find_youtube_thumbnail_candidates(
@@ -276,7 +393,8 @@ def _thumbnail_search_bounds(
 
     width = right - left
     height = bottom - top
-    content_left = left + round(width * 0.07)
+    left_nav_ratio = 0.18 if width >= 1500 else 0.07
+    content_left = left + round(width * left_nav_ratio)
     content_top = top + round(height * 0.16)
     content_right = right - round(width * 0.03)
     content_bottom = bottom - round(height * 0.04)
@@ -439,6 +557,197 @@ def normalize_browser_target(target: str) -> str:
     return f"https://www.bing.com/search?q={quote_plus(cleaned)}"
 
 
+def resolve_canvas_course(
+    course_query: str,
+    canvas_base_url: str,
+    course_aliases: dict[str, str],
+    canvas_api_token: str = "",
+) -> dict[str, Any]:
+    base_url = normalize_canvas_base_url(canvas_base_url)
+    cleaned_query = _clean_course_query(course_query)
+    alias_key = _course_key(cleaned_query)
+
+    normalized_aliases = {
+        _course_key(alias): normalize_canvas_url(url, base_url)
+        for alias, url in course_aliases.items()
+        if alias.strip() and url.strip()
+    }
+    if alias_key in normalized_aliases:
+        return {
+            "url": normalized_aliases[alias_key],
+            "resolution": "configured_alias",
+            "matched_course": cleaned_query,
+        }
+
+    if canvas_api_token.strip():
+        try:
+            match = find_canvas_course_via_api(
+                course_query=cleaned_query,
+                canvas_base_url=base_url,
+                canvas_api_token=canvas_api_token,
+            )
+        except (CanvasCourseLookupError, ValueError) as exc:
+            return {
+                "url": f"{base_url}/courses",
+                "resolution": "courses_page_fallback",
+                "lookup_error": str(exc),
+                "needs_course_alias": True,
+            }
+        if match:
+            return {
+                "url": f"{base_url}/courses/{quote_plus(str(match['id']))}",
+                "resolution": "canvas_api",
+                "matched_course": match.get("name") or match.get("course_code") or cleaned_query,
+                "match_score": match.get("score"),
+            }
+
+    return {
+        "url": f"{base_url}/courses",
+        "resolution": "courses_page_fallback",
+        "needs_course_alias": True,
+    }
+
+
+class CanvasCourseLookupError(RuntimeError):
+    pass
+
+
+def find_canvas_course_via_api(
+    course_query: str,
+    canvas_base_url: str,
+    canvas_api_token: str,
+) -> dict[str, Any] | None:
+    base_url = normalize_canvas_base_url(canvas_base_url)
+    url = f"{base_url}/api/v1/courses?enrollment_state=active&per_page=100"
+    request = Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {canvas_api_token}",
+            "Accept": "application/json",
+        },
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=6) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        raise CanvasCourseLookupError(f"Canvas API lookup failed with HTTP {exc.code}.") from exc
+    except URLError as exc:
+        raise CanvasCourseLookupError(f"Canvas API lookup failed: {exc.reason}") from exc
+    except TimeoutError as exc:
+        raise CanvasCourseLookupError("Canvas API lookup timed out.") from exc
+    except json.JSONDecodeError as exc:
+        raise CanvasCourseLookupError("Canvas API lookup returned non-JSON data.") from exc
+
+    if not isinstance(payload, list):
+        raise CanvasCourseLookupError("Canvas API lookup returned an unexpected payload.")
+
+    best: dict[str, Any] | None = None
+    best_score = 0.0
+    for course in payload:
+        if not isinstance(course, dict):
+            continue
+        course_id = course.get("id")
+        if course_id is None:
+            continue
+        score = _canvas_course_match_score(course_query, course)
+        if score > best_score:
+            best_score = score
+            best = {
+                "id": course_id,
+                "name": str(course.get("name") or ""),
+                "course_code": str(course.get("course_code") or ""),
+                "score": round(score, 3),
+            }
+
+    if best is not None and best_score >= 0.45:
+        return best
+    return None
+
+
+def normalize_canvas_base_url(raw_url: str) -> str:
+    cleaned = raw_url.strip().rstrip("/")
+    if not cleaned:
+        cleaned = SITE_ALIASES["canvas"].rstrip("/")
+    parsed = urlparse(cleaned)
+    if not parsed.scheme:
+        cleaned = f"https://{cleaned}"
+        parsed = urlparse(cleaned)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("CANVAS_BASE_URL must be an http(s) URL.")
+    return cleaned
+
+
+def normalize_canvas_url(raw_url: str, canvas_base_url: str) -> str:
+    cleaned = raw_url.strip().strip("\"'")
+    if cleaned.startswith("/"):
+        return f"{canvas_base_url}{cleaned}"
+    parsed = urlparse(cleaned)
+    if not parsed.scheme:
+        if cleaned.startswith("courses/"):
+            return f"{canvas_base_url}/{cleaned}"
+        return f"{canvas_base_url}/courses/{quote_plus(cleaned)}"
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("Canvas course aliases must be http(s), /courses paths, or course ids.")
+    return cleaned
+
+
+def _canvas_course_match_score(course_query: str, course: dict[str, Any]) -> float:
+    query_variants = _course_query_variants(course_query)
+    course_texts = [
+        str(course.get("name") or ""),
+        str(course.get("course_code") or ""),
+        str(course.get("original_name") or ""),
+    ]
+    best = 0.0
+    for query_variant in query_variants:
+        query_key = _course_key(query_variant)
+        if not query_key:
+            continue
+        query_tokens = set(query_key.split())
+        for course_text in course_texts:
+            course_key = _course_key(course_text)
+            if not course_key:
+                continue
+            if query_key in course_key or course_key in query_key:
+                best = max(best, 0.95)
+            overlap = len(query_tokens.intersection(course_key.split())) / max(
+                1,
+                len(query_tokens),
+            )
+            best = max(best, overlap * 0.85)
+            best = max(best, SequenceMatcher(None, query_key, course_key).ratio())
+    return best
+
+
+def _course_query_variants(course_query: str) -> tuple[str, ...]:
+    cleaned = _clean_course_query(course_query)
+    variants = {cleaned}
+    lowered = cleaned.lower()
+    if re.search(r"\bai\b", lowered):
+        variants.add(re.sub(r"\bai\b", "artificial intelligence", lowered))
+    if re.search(r"\bintro\b", lowered):
+        variants.add(re.sub(r"\bintro\b", "introduction", lowered))
+    if "intro" in lowered and "ai" in lowered:
+        variants.add("introduction to artificial intelligence")
+    return tuple(variant for variant in variants if variant.strip())
+
+
+def _course_key(value: str) -> str:
+    cleaned = value.lower()
+    cleaned = re.sub(r"\bai\b", "artificial intelligence", cleaned)
+    cleaned = re.sub(r"[^a-z0-9]+", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.strip()
+
+
+def _clean_course_query(value: str) -> str:
+    cleaned = value.strip(" \t\n\r.,;:\"'")
+    cleaned = re.sub(r"^(?:my|the|a|an)\s+", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+(?:course|class)$", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip(" \t\n\r.,;:\"'")
+
+
 def _ratio(value: Any, name: str) -> float:
     try:
         ratio = float(value)
@@ -454,6 +763,7 @@ def build_youtube_url(
     query: str = "",
     video_url: str = "",
     video_id: str = "",
+    prefer_video_results: bool = False,
 ) -> tuple[str, str, str | None]:
     if video_url:
         return normalize_youtube_url(video_url), "video", None
@@ -467,18 +777,21 @@ def build_youtube_url(
     if action in {"search", "specific", "video", "play", "watch"}:
         if not query:
             raise ValueError("youtube_open requires query, video_url, or video_id for this action.")
-        return youtube_search_url(query), "search", query
+        return youtube_search_url(query, prefer_video_results=prefer_video_results), "search", query
 
     raise ValueError(
         "youtube_open action must be one of home, search, video, play, watch, or random."
     )
 
 
-def youtube_search_url(query: str) -> str:
+def youtube_search_url(query: str, prefer_video_results: bool = False) -> str:
     cleaned = query.strip()
     if not cleaned:
         raise ValueError("YouTube search query cannot be empty.")
-    return f"https://www.youtube.com/results?search_query={quote_plus(cleaned)}"
+    url = f"https://www.youtube.com/results?search_query={quote_plus(cleaned)}"
+    if prefer_video_results:
+        url = f"{url}&sp={YOUTUBE_VIDEO_FILTER}"
+    return url
 
 
 def normalize_youtube_url(raw_url: str) -> str:

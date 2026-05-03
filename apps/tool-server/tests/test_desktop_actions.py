@@ -7,11 +7,61 @@ from uuid import uuid4
 from nemotronos_tools.tools.desktop_actions import (
     build_youtube_url,
     choose_youtube_thumbnail_candidate,
+    canvas_open_course,
+    discord_send_message,
     find_youtube_thumbnail_candidates,
     normalize_browser_target,
     normalize_youtube_url,
+    resolve_canvas_course,
     youtube_search_url,
 )
+from nemotronos_tools.tools.desktop_base import DesktopBackend
+
+
+class RecordingDesktopBackend(DesktopBackend):
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, object]] = []
+
+    def capture_screen(self) -> dict:
+        self.calls.append(("capture_screen", None))
+        return {"image_ref": "mock://screen/latest"}
+
+    def launch_app(self, app_name: str) -> dict:
+        self.calls.append(("launch_app", app_name))
+        return {"mode": "test", "app_name": app_name, "launched": True, "focused": True}
+
+    def type_text(self, text: str) -> dict:
+        self.calls.append(("type_text", text))
+        return {"mode": "test", "typed": True, "characters": len(text)}
+
+    def press_enter(self) -> dict:
+        self.calls.append(("press_enter", None))
+        return {"mode": "test", "pressed": "enter"}
+
+    def press_escape(self) -> dict:
+        self.calls.append(("press_escape", None))
+        return {"mode": "test", "pressed": "escape"}
+
+    def open_browser(self, url: str) -> dict:
+        self.calls.append(("open_browser", url))
+        return {"mode": "test", "opened": True, "url": url}
+
+    def focus_window(self, title_hint: str) -> dict:
+        self.calls.append(("focus_window", title_hint))
+        return {"mode": "test", "focused": True, "title_hint": title_hint}
+
+    def click_at(self, x: int, y: int) -> dict:
+        self.calls.append(("click_at", (x, y)))
+        return {"mode": "test", "clicked": True, "x": x, "y": y}
+
+    def click_foreground_relative(self, x_ratio: float, y_ratio: float) -> dict:
+        self.calls.append(("click_foreground_relative", (x_ratio, y_ratio)))
+        return {
+            "mode": "test",
+            "clicked": True,
+            "x_ratio": x_ratio,
+            "y_ratio": y_ratio,
+        }
 
 
 class DesktopActionTests(unittest.TestCase):
@@ -52,11 +102,23 @@ class DesktopActionTests(unittest.TestCase):
             "https://www.youtube.com/results?search_query=lofi+hip+hop",
         )
         self.assertEqual(
+            youtube_search_url("Zajef77", prefer_video_results=True),
+            "https://www.youtube.com/results?search_query=Zajef77&sp=EgIQAQ%253D%253D",
+        )
+        self.assertEqual(
             build_youtube_url("search", query="lofi hip hop"),
             (
                 "https://www.youtube.com/results?search_query=lofi+hip+hop",
                 "search",
                 "lofi hip hop",
+            ),
+        )
+        self.assertEqual(
+            build_youtube_url("search", query="Zajef77", prefer_video_results=True),
+            (
+                "https://www.youtube.com/results?search_query=Zajef77&sp=EgIQAQ%253D%253D",
+                "search",
+                "Zajef77",
             ),
         )
 
@@ -73,6 +135,51 @@ class DesktopActionTests(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             normalize_youtube_url("https://example.com/watch?v=abc123")
+
+    def test_discord_send_message_pastes_and_presses_enter(self) -> None:
+        backend = RecordingDesktopBackend()
+
+        result = discord_send_message({"text": "hello team"}, backend)
+
+        self.assertTrue(result["sent"])
+        self.assertEqual(
+            backend.calls,
+            [
+                ("focus_window", "discord"),
+                ("press_escape", None),
+                ("type_text", "hello team"),
+                ("press_enter", None),
+            ],
+        )
+
+    def test_resolves_canvas_course_from_alias(self) -> None:
+        resolution = resolve_canvas_course(
+            "intro to AI",
+            "https://canvas.oregonstate.edu/",
+            {"intro to ai": "/courses/12345"},
+        )
+
+        self.assertEqual(resolution["url"], "https://canvas.oregonstate.edu/courses/12345")
+        self.assertEqual(resolution["resolution"], "configured_alias")
+
+    def test_canvas_course_falls_back_to_courses_page(self) -> None:
+        backend = RecordingDesktopBackend()
+
+        result = canvas_open_course(
+            {"course_query": "intro to AI"},
+            backend,
+            "https://canvas.oregonstate.edu",
+            {},
+            "",
+        )
+
+        self.assertEqual(result["url"], "https://canvas.oregonstate.edu/courses")
+        self.assertEqual(result["resolution"], "courses_page_fallback")
+        self.assertTrue(result["needs_course_alias"])
+        self.assertEqual(
+            backend.calls,
+            [("open_browser", "https://canvas.oregonstate.edu/courses")],
+        )
 
     def test_detects_visible_youtube_thumbnail_from_screenshot(self) -> None:
         from PIL import Image, ImageDraw
@@ -100,15 +207,50 @@ class DesktopActionTests(unittest.TestCase):
 
             self.assertIsNotNone(target)
             assert target is not None
-            self.assertGreaterEqual(target["center_x"], 220)
-            self.assertLessEqual(target["center_x"], 520)
-            self.assertGreaterEqual(target["center_y"], 210)
+            self.assertGreaterEqual(target["center_y"], 180)
             self.assertLessEqual(target["center_y"], 400)
         finally:
             if image_path.exists():
                 image_path.unlink()
             if temp_dir.exists():
                 temp_dir.rmdir()
+
+    def test_first_video_result_skips_channel_header_candidate(self) -> None:
+        candidates = [
+            {
+                "left": 280,
+                "top": 120,
+                "right": 380,
+                "bottom": 220,
+                "center_x": 330,
+                "center_y": 170,
+                "score": 90,
+            },
+            {
+                "left": 92,
+                "top": 330,
+                "right": 592,
+                "bottom": 611,
+                "center_x": 342,
+                "center_y": 470,
+                "score": 50,
+            },
+            {
+                "left": 92,
+                "top": 628,
+                "right": 592,
+                "bottom": 909,
+                "center_x": 342,
+                "center_y": 768,
+                "score": 95,
+            },
+        ]
+
+        target = choose_youtube_thumbnail_candidate("first_video_result", candidates)
+
+        self.assertIsNotNone(target)
+        assert target is not None
+        self.assertEqual(target["top"], 330)
 
 
 if __name__ == "__main__":

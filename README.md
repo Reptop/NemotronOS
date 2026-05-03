@@ -164,17 +164,20 @@ Useful modes:
 - `VOICE_AGENT_OPENWAKEWORD_THRESHOLD` and `VOICE_AGENT_OPENWAKEWORD_FRAME_MS`: tune local wake sensitivity and streaming frame size.
 - `VOICE_AGENT_WAKE_SILENCE_SECONDS`, `VOICE_AGENT_WAKE_CHUNK_SECONDS`, `VOICE_AGENT_COMMAND_SILENCE_SECONDS`, and `VOICE_AGENT_COMMAND_CHUNK_SECONDS`: tune the faster wake capture separately from the longer command capture.
 - `VOICE_AGENT_SPEECH_THRESHOLD` and `VOICE_AGENT_LISTEN_BLOCK_MS`: tune speech detection sensitivity and how quickly silence is noticed.
-- If the wake word is heard without a command, the voice agent says `VOICE_AGENT_LISTENING_ACK` and treats the next utterance as the command.
+- `VOICE_AGENT_SUBMITTED_ACK`: quick neutral acknowledgement after a command is accepted locally. Keep it neutral because the task may still fail or be unsupported.
+- `VOICE_AGENT_LISTENING_ACK`: optional prompt after a wake-only utterance. The current demo value is `uh huh`; the voice agent waits for this short acknowledgement to finish before recording the command.
+- `VOICE_AGENT_TTS_VOICE`: optional Windows SAPI voice name. On this Windows machine the installed choices are `Microsoft David Desktop`, `Microsoft Zira Desktop`, and `Microsoft Haruka Desktop`; the current demo value is `Microsoft Zira Desktop`.
+- If the wake word is heard without a command, the voice agent immediately treats the next utterance as the command.
 
 Example:
 
 `Computer, open notepad and type in hello from the local voice agent`
 
-This is still a scaffold. The current recommended demo path is the refined Whisper-poll loop because it supports both `Jarvis` and `Computer`. The next privacy step is local NVIDIA Speech NIM/Riva ASR and TTS when those services are available, plus either a custom openWakeWord model or another local detector for "Computer."
+This is still a scaffold. The current recommended demo path is the refined Whisper-poll loop because it supports both `Jarvis` and `Computer`. It gives a short wake acknowledgement, gives a quick neutral acknowledgement after command submission, stays quiet on successful task completion, and only speaks again for unsupported, failed, or approval-gated tasks. The next privacy step is local NVIDIA Speech NIM/Riva ASR and TTS when those services are available, plus either a custom openWakeWord model or another local detector for "Computer."
 
 ### Real Windows desktop tool mode
 
-For the first real desktop-control slice, set `TOOL_MODE=windows` and run the tool server from an interactive Windows terminal. The tool server currently allowlists `notepad`, `calculator`/`calc`, and `paint`/`mspaint` for `app_launch`, supports `keyboard_type` through clipboard paste, supports `browser_open` through the default Windows browser, and has screenshot-first mouse clicking for YouTube video selection with a ratio-click fallback.
+For the first real desktop-control slice, set `TOOL_MODE=windows` and run the tool server from an interactive Windows terminal. The tool server currently allowlists `notepad`, `calculator`/`calc`, `paint`/`mspaint`, and `discord` for `app_launch`, supports `keyboard_type` through clipboard paste, supports Discord message sending to the currently active conversation, supports `browser_open` through the default Windows browser, supports Canvas course opening through configured aliases or an optional Canvas API token, and has screenshot-first mouse clicking for YouTube video selection with a ratio-click fallback.
 
 First manual test prompt:
 
@@ -184,9 +187,25 @@ Browser test prompts:
 
 `Open my web browser and navigate to Canvas.`
 
+`To cnn.com.`
+
+`To Canvas.`
+
+Canvas course test prompt:
+
+`Open Canvas and navigate to my intro to AI course.`
+
+For deterministic Canvas course routing, set either `CANVAS_INTRO_TO_AI_URL=https://canvas.oregonstate.edu/courses/<course-id>` or a semicolon-separated alias map such as `CANVAS_COURSE_ALIASES=intro to ai=https://canvas.oregonstate.edu/courses/<course-id>`. Optional `CANVAS_API_TOKEN` lets the tool list active Canvas courses through `/api/v1/courses` and fuzzy-match the requested course name.
+
 `Open YouTube and play a random video.`
 
 `Play lofi hip hop on YouTube.`
+
+Discord test prompt:
+
+`Open Discord and send a message saying hello from NemotronOS.`
+
+This sends to the currently active Discord conversation. It does not select servers or channels, so put Discord on the target chat first.
 
 If the tool server is launched from a hidden or non-interactive service context, Windows may create a process without a focusable desktop window. Run it from the signed-in desktop session for real UI interaction tests.
 
@@ -209,7 +228,7 @@ If the tool server is launched from a hidden or non-interactive service context,
 - `GET /health`
 - `POST /demo/reset-downloads`
 
-Currently registered tool-server tools include `app_launch`, `keyboard_type`, `mouse_click`, `browser_open`, `youtube_open`, `youtube_click_video`, `fs_plan_changes`, `fs_apply_changes`, `screen_capture`, `shell_run`, and `notify_user`.
+Currently registered tool-server tools include `app_launch`, `keyboard_type`, `discord_send_message`, `mouse_click`, `browser_open`, `canvas_open_course`, `youtube_open`, `youtube_click_video`, `fs_plan_changes`, `fs_apply_changes`, `screen_capture`, `shell_run`, and `notify_user`.
 
 ## Notes
 

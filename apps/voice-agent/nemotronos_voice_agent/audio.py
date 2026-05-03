@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import math
 import wave
+from collections import deque
 
 import numpy as np
 
@@ -42,6 +43,7 @@ def record_wav_until_silence(
     sample_rate: int,
     channels: int,
     input_device: str | None = None,
+    preroll_seconds: float = 0.35,
 ) -> bytes:
     try:
         import sounddevice as sd
@@ -55,7 +57,9 @@ def record_wav_until_silence(
     max_blocks = max(1, math.ceil(max_seconds * sample_rate / block_frames))
     min_blocks = max(1, math.ceil(min_record_seconds * sample_rate / block_frames))
     silence_blocks = max(1, math.ceil(silence_seconds * sample_rate / block_frames))
+    preroll_blocks = max(0, math.ceil(preroll_seconds * sample_rate / block_frames))
     chunks: list[np.ndarray] = []
+    preroll: deque[np.ndarray] = deque(maxlen=preroll_blocks)
     quiet_blocks = 0
     heard_voice = False
 
@@ -69,13 +73,18 @@ def record_wav_until_silence(
             block, overflowed = stream.read(block_frames)
             del overflowed
 
-            if _rms(block) >= speech_threshold:
+            is_speech = _rms(block) >= speech_threshold
+            if is_speech:
+                if not heard_voice:
+                    chunks.extend(item.copy() for item in preroll)
                 heard_voice = True
                 quiet_blocks = 0
             elif heard_voice:
                 quiet_blocks += 1
 
             if not heard_voice:
+                if preroll_blocks:
+                    preroll.append(block.copy())
                 continue
 
             chunks.append(block.copy())
@@ -98,6 +107,7 @@ def record_command_wav(settings) -> bytes:
         settings.sample_rate,
         settings.channels,
         settings.input_device,
+        settings.preroll_seconds,
     )
 
 
