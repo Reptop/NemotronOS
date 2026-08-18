@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 import httpx
 from pydantic import BaseModel
 
+from .assistant_personality import with_assistant_personality
 from .config import AgentServerSettings
 
 
@@ -393,7 +394,7 @@ class OpenAICompatibleModelClient(ModelClient):
             "messages": [
                 {
                     "role": "system",
-                    "content": (
+                    "content": with_assistant_personality(
                         "You are NemotronOS, a private Windows PC agent. "
                         "A previous desktop tool has already run successfully. "
                         "Pick exactly one next tool call from the provided tool list. "
@@ -485,7 +486,7 @@ class OpenAICompatibleModelClient(ModelClient):
     ) -> str:
         context_json = _compact_json(screen_context, max_characters=9000)
         return await self._request_text_response(
-            system_prompt=(
+            system_prompt=with_assistant_personality(
                 "You are NemotronOS in accessibility narration mode for a blind or "
                 "low-vision Windows user. Explain the current screen from the provided "
                 "structured desktop context. Return plain spoken text only: no markdown, "
@@ -510,7 +511,7 @@ class OpenAICompatibleModelClient(ModelClient):
     ) -> str:
         context_json = _compact_json(activity_context, max_characters=9000)
         return await self._request_text_response(
-            system_prompt=(
+            system_prompt=with_assistant_personality(
                 "You are NemotronOS explaining your own recent actions to a blind or "
                 "low-vision user. Summarize what you just did in first person, based only "
                 "on the task and tool-event context. Mention whether it completed, failed, "
@@ -525,7 +526,7 @@ class OpenAICompatibleModelClient(ModelClient):
         )
 
     def _first_action_system_prompt(self) -> str:
-        return (
+        return with_assistant_personality(
             "You are NemotronOS, a private Windows PC agent. "
             "Interpret the user's request, including short or noisy voice transcripts, "
             "and pick exactly one next tool call from the provided tool list. "
@@ -589,7 +590,7 @@ class OpenAICompatibleModelClient(ModelClient):
             if force_downloads_plan
             else ""
         )
-        return (
+        return with_assistant_personality(
             "You are NemotronOS's tool router. Return only one compact JSON object "
             "and no other text. Do not include markdown, XML tags, <think>, or explanation. "
             "The JSON schema is exactly: "
@@ -1050,8 +1051,194 @@ class OpenAICompatibleModelClient(ModelClient):
         )
 
 
+class OpenAIResponsesModelClient(OpenAICompatibleModelClient):
+    """OpenAI Responses API transport with the existing NemotronOS planner behavior."""
+
+    async def generate_code(self, goal: str) -> GeneratedCode:
+        content = await self._request_text_response(
+            system_prompt=(
+                "You are NemotronOS's coding agent. Generate the code the user asked for. "
+                "Return only code, with no markdown fence, explanation, preamble, or "
+                "trailing commentary. Prefer a single self-contained file when the user "
+                "does not ask for a multi-file project. Do not claim you saved or ran anything."
+            ),
+            user_prompt=goal,
+            max_tokens=self.settings.model_code_max_tokens,
+        )
+        code, fenced_language = self._clean_generated_code(content)
+        if not code.strip():
+            raise RuntimeError("Model returned empty code.")
+        return GeneratedCode(
+            code=code,
+            language=fenced_language or _guess_code_language(goal, code),
+        )
+
+    async def _request_text_response(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int,
+    ) -> str:
+        data = await self._post_response(
+            {
+                "model": self.settings.model_name,
+                "instructions": system_prompt,
+                "input": user_prompt,
+                "max_output_tokens": max(max_tokens, 512),
+                **self._response_behavior(),
+            }
+        )
+        cleaned = self._clean_text_response(self._extract_response_text(data))
+        if not cleaned:
+            raise RuntimeError("OpenAI Responses API returned an empty text response.")
+        return cleaned
+
+    async def _request_tool_call(
+        self,
+        payload: dict[str, Any],
+        tool_definitions: list[dict[str, Any]],
+    ) -> PlannedToolCall:
+        response_payload = self._convert_chat_payload(payload)
+        response_payload["tools"] = [
+            {
+                "type": "function",
+                **definition,
+                "strict": False,
+            }
+            for definition in tool_definitions
+        ]
+        response_payload["tool_choice"] = self._responses_tool_choice(
+            payload.get("tool_choice")
+        )
+        response_payload["parallel_tool_calls"] = False
+
+        data = await self._post_response(response_payload)
+        tool_call = next(
+            (
+                item
+                for item in data.get("output", [])
+                if isinstance(item, dict) and item.get("type") == "function_call"
+            ),
+            None,
+        )
+        if tool_call is None:
+            raise RuntimeError("OpenAI Responses API did not return a function call.")
+
+        tool_name = str(tool_call.get("name") or "")
+        if tool_name not in {definition["name"] for definition in tool_definitions}:
+            raise RuntimeError(f"OpenAI Responses API requested unknown tool: {tool_name}")
+
+        return PlannedToolCall(
+            name=tool_name,
+            arguments=self._parse_arguments(tool_call.get("arguments", "{}")),
+            rationale=self._extract_response_text(data) or None,
+        )
+
+    async def _request_json_tool_call(
+        self,
+        goal: str,
+        tool_definitions: list[dict[str, Any]],
+        force_downloads_plan: bool,
+    ) -> PlannedToolCall:
+        content = await self._request_text_response(
+            system_prompt=self._json_router_system_prompt(
+                tool_definitions,
+                force_downloads_plan,
+            ),
+            user_prompt=goal,
+            max_tokens=192,
+        )
+        parsed = self._parse_json_tool_content(content)
+        tool_name = str(parsed.get("name") or "").strip()
+        if tool_name not in {definition["name"] for definition in tool_definitions}:
+            raise RuntimeError(f"JSON planner requested unknown tool: {tool_name}")
+        arguments = parsed.get("arguments") or {}
+        if not isinstance(arguments, dict):
+            raise RuntimeError("JSON planner returned non-object arguments.")
+        return PlannedToolCall(
+            name=tool_name,
+            arguments=arguments,
+            rationale=str(parsed.get("rationale") or "").strip() or None,
+        )
+
+    async def _post_response(self, payload: dict[str, Any]) -> dict[str, Any]:
+        headers = {}
+        if self.settings.model_api_key:
+            headers["Authorization"] = f"Bearer {self.settings.model_api_key}"
+        async with httpx.AsyncClient(timeout=self.settings.request_timeout_seconds) as client:
+            response = await client.post(
+                self._responses_url(),
+                headers=headers,
+                json=payload,
+            )
+            response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict):
+            raise RuntimeError("OpenAI Responses API returned a non-object response.")
+        return data
+
+    def _convert_chat_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        instructions: list[str] = []
+        input_messages: list[dict[str, str]] = []
+        for message in payload.get("messages", []):
+            role = str(message.get("role") or "user")
+            content = str(message.get("content") or "")
+            if role in {"system", "developer"}:
+                instructions.append(content)
+            else:
+                input_messages.append({"role": role, "content": content})
+
+        converted: dict[str, Any] = {
+            "model": payload.get("model") or self.settings.model_name,
+            "input": input_messages,
+            "max_output_tokens": max(int(payload.get("max_tokens", 256)), 512),
+            **self._response_behavior(),
+        }
+        if instructions:
+            converted["instructions"] = "\n\n".join(instructions)
+        return converted
+
+    def _response_behavior(self) -> dict[str, Any]:
+        return {
+            "reasoning": {"effort": self.settings.model_reasoning_effort},
+            "text": {"verbosity": self.settings.model_text_verbosity},
+            "store": False,
+        }
+
+    def _responses_tool_choice(self, chat_tool_choice: Any) -> str | dict[str, str]:
+        if isinstance(chat_tool_choice, dict):
+            function = chat_tool_choice.get("function") or {}
+            name = str(function.get("name") or "")
+            if name:
+                return {"type": "function", "name": name}
+        return "required"
+
+    def _responses_url(self) -> str:
+        return f"{self.settings.model_base_url.rstrip('/')}/responses"
+
+    def _extract_response_text(self, data: dict[str, Any]) -> str:
+        direct_text = data.get("output_text")
+        if isinstance(direct_text, str) and direct_text.strip():
+            return direct_text
+
+        text_parts: list[str] = []
+        for item in data.get("output", []):
+            if not isinstance(item, dict) or item.get("type") != "message":
+                continue
+            for content in item.get("content", []):
+                if not isinstance(content, dict):
+                    continue
+                if content.get("type") in {"output_text", "text"}:
+                    text = content.get("text")
+                    if isinstance(text, str) and text.strip():
+                        text_parts.append(text)
+        return "\n".join(text_parts)
+
+
 def build_model_client(settings: AgentServerSettings) -> ModelClient:
     if settings.model_mode == "openai_compatible":
+        if settings.model_api.strip().lower() == "responses":
+            return OpenAIResponsesModelClient(settings)
         return OpenAICompatibleModelClient(settings)
     return MockModelClient(settings)
 

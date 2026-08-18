@@ -144,9 +144,12 @@ def create_app() -> FastAPI:
             "status": "ok",
             "app_env": current_settings.app_env,
             "model_mode": current_settings.model_mode,
+            "model_provider": current_settings.model_provider,
+            "model_api": current_settings.model_api,
             "model_name": current_settings.model_name,
-            "transcription_model": current_settings.transcription_model,
-            "voice_enabled": bool(current_settings.openai_api_key),
+            "transcription_provider": current_settings.transcription_provider,
+            "transcription_model": current_settings.active_transcription_model,
+            "voice_enabled": current_settings.transcription_enabled,
             "tool_server_url": current_settings.tool_server_url,
             "tool_server": tool_health,
         }
@@ -197,7 +200,7 @@ def create_app() -> FastAPI:
             )
             raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
         except httpx.HTTPError as exc:
-            detail = f"Transcription request failed before OpenAI returned a response: {exc}"
+            detail = f"Transcription request failed before the provider returned a response: {exc}"
             current_event_log.add_event("voice_transcription_failed", error=detail)
             raise HTTPException(status_code=502, detail=detail) from exc
         except RuntimeError as exc:
@@ -211,6 +214,7 @@ def create_app() -> FastAPI:
             memory={
                 "voice_transcript": transcription["text"],
                 "voice_transcription_model": transcription["model"],
+                "voice_transcription_provider": transcription["provider"],
                 **(
                     {"voice_dictation_text": dictation_text}
                     if dictation_text is not None
@@ -224,6 +228,7 @@ def create_app() -> FastAPI:
             task_id=task.id,
             text=transcription["text"],
             model=transcription["model"],
+            provider=transcription["provider"],
             audio_bytes=transcription["audio_bytes"],
         )
         current_event_log.add_event("task_created", task_id=task.id, goal=task.goal)
@@ -310,7 +315,8 @@ def create_app() -> FastAPI:
                     "command": "",
                     "transcription": {
                         "text": "",
-                        "model": request.app.state.settings.transcription_model,
+                        "model": request.app.state.settings.active_transcription_model,
+                        "provider": request.app.state.settings.transcription_provider,
                         "audio_bytes": 0,
                     },
                 }

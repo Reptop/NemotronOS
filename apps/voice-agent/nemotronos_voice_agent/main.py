@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import re
+from dataclasses import replace
 from threading import Lock
 
 import httpx
@@ -324,11 +325,11 @@ async def wait_for_task_outcome(
 def spoken_outcome_message(task: dict, success_acknowledgement: str) -> str:
     state = str(task.get("state", ""))
     if state == "completed":
+        if _is_unsupported_notify_task(task):
+            return "I don't know how to do that yet."
         voice_response = _voice_response_text(task)
         if voice_response:
             return voice_response
-        if _is_unsupported_notify_task(task):
-            return "I don't know how to do that yet."
         return ""
     if state == "waiting_for_approval":
         return "I need your approval before I do that."
@@ -354,6 +355,34 @@ def _voice_response_text(task: dict) -> str:
             message = str(notify_result.get("message") or "").strip()
             if message and "i do not know how to do that yet" not in message.lower():
                 return _fit_spoken_message(message)
+
+    notify_message = _completed_notify_user_message(task)
+    if notify_message:
+        return _fit_spoken_message(notify_message)
+    return ""
+
+
+def _completed_notify_user_message(task: dict) -> str:
+    tool_calls = task.get("tool_calls")
+    if not isinstance(tool_calls, list) or len(tool_calls) != 1:
+        return ""
+    tool_call = tool_calls[0]
+    if not isinstance(tool_call, dict) or tool_call.get("name") != "notify_user":
+        return ""
+
+    task_result = task.get("result")
+    if isinstance(task_result, dict):
+        message = str(task_result.get("message") or "").strip()
+        if message:
+            return message
+    tool_result = tool_call.get("result")
+    if isinstance(tool_result, dict):
+        message = str(tool_result.get("message") or "").strip()
+        if message:
+            return message
+    arguments = tool_call.get("arguments")
+    if isinstance(arguments, dict):
+        return str(arguments.get("message") or "").strip()
     return ""
 
 
@@ -416,12 +445,17 @@ def _consume_task_exception(task: asyncio.Task) -> None:
         print(f"Voice acknowledgement failed: {exc}")
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the NemotronOS local voice agent.")
     parser.add_argument(
         "--mode",
         choices=["manual", "whisper_poll", "openwakeword"],
         help="Override VOICE_AGENT_WAKE_MODE for this run.",
+    )
+    parser.add_argument(
+        "--tts-mode",
+        choices=["windows_sapi", "openai", "elevenlabs"],
+        help="Override VOICE_AGENT_TTS_MODE for this run.",
     )
     parser.add_argument(
         "--test-tts",
@@ -430,7 +464,7 @@ def parse_args() -> argparse.Namespace:
         metavar="TEXT",
         help="Speak a sample through the configured TTS backend, then exit.",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def build_configured_speaker(settings: VoiceAgentSettings):
@@ -444,7 +478,23 @@ def build_configured_speaker(settings: VoiceAgentSettings):
         response_format=settings.tts_response_format,
         speed=settings.tts_speed,
         timeout_seconds=settings.request_timeout_seconds,
+        elevenlabs_api_key=settings.elevenlabs_api_key,
+        elevenlabs_base_url=settings.elevenlabs_base_url,
+        elevenlabs_voice_id=settings.elevenlabs_voice_id,
+        elevenlabs_model=settings.elevenlabs_tts_model,
+        elevenlabs_output_format=settings.elevenlabs_output_format,
     )
+
+
+def apply_cli_overrides(
+    settings: VoiceAgentSettings,
+    args: argparse.Namespace,
+) -> VoiceAgentSettings:
+    if args.mode:
+        settings = replace(settings, wake_mode=args.mode)
+    if args.tts_mode:
+        settings = replace(settings, tts_mode=args.tts_mode)
+    return settings
 
 
 class SerializedSpeaker:
@@ -459,46 +509,7 @@ class SerializedSpeaker:
 
 def main() -> None:
     args = parse_args()
-    settings = get_settings()
-    if args.mode:
-        settings = VoiceAgentSettings(
-            agent_server_url=settings.agent_server_url,
-            wake_mode=args.mode,
-            wake_words=settings.wake_words,
-            chunk_seconds=settings.chunk_seconds,
-            silence_seconds=settings.silence_seconds,
-            min_record_seconds=settings.min_record_seconds,
-            wake_chunk_seconds=settings.wake_chunk_seconds,
-            wake_silence_seconds=settings.wake_silence_seconds,
-            wake_min_record_seconds=settings.wake_min_record_seconds,
-            command_chunk_seconds=settings.command_chunk_seconds,
-            command_silence_seconds=settings.command_silence_seconds,
-            command_min_record_seconds=settings.command_min_record_seconds,
-            openwakeword_model_paths=settings.openwakeword_model_paths,
-            openwakeword_threshold=settings.openwakeword_threshold,
-            openwakeword_frame_ms=settings.openwakeword_frame_ms,
-            speech_threshold=settings.speech_threshold,
-            listen_block_ms=settings.listen_block_ms,
-            preroll_seconds=settings.preroll_seconds,
-            sample_rate=settings.sample_rate,
-            channels=settings.channels,
-            input_device=settings.input_device,
-            request_timeout_seconds=settings.request_timeout_seconds,
-            tts_mode=settings.tts_mode,
-            tts_voice=settings.tts_voice,
-            tts_model=settings.tts_model,
-            tts_instructions=settings.tts_instructions,
-            tts_response_format=settings.tts_response_format,
-            tts_speed=settings.tts_speed,
-            openai_api_key=settings.openai_api_key,
-            openai_base_url=settings.openai_base_url,
-            acknowledgement=settings.acknowledgement,
-            submitted_acknowledgement=settings.submitted_acknowledgement,
-            accessibility_acknowledgement=settings.accessibility_acknowledgement,
-            listening_acknowledgement=settings.listening_acknowledgement,
-            outcome_wait_seconds=settings.outcome_wait_seconds,
-            final_outcome_wait_seconds=settings.final_outcome_wait_seconds,
-        )
+    settings = apply_cli_overrides(get_settings(), args)
 
     if args.test_tts is not None:
         speaker = build_configured_speaker(settings)

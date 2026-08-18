@@ -66,6 +66,51 @@ class VoiceOutcomeTests(unittest.TestCase):
             "",
         )
 
+    def test_completed_conversation_speaks_direct_notify_result(self) -> None:
+        task = {
+            "state": "completed",
+            "result": {
+                "delivered": True,
+                "message": "Hi Shrey! My name is NemotronOS.",
+            },
+            "tool_calls": [
+                {
+                    "name": "notify_user",
+                    "arguments": {"message": "Hi Shrey! My name is NemotronOS."},
+                    "result": {
+                        "delivered": True,
+                        "message": "Hi Shrey! My name is NemotronOS.",
+                    },
+                }
+            ],
+        }
+
+        self.assertEqual(
+            spoken_outcome_message(task, "Done."),
+            "Hi Shrey! My name is NemotronOS.",
+        )
+
+    def test_unsupported_notify_stays_user_friendly_with_direct_result(self) -> None:
+        task = {
+            "state": "completed",
+            "result": {
+                "message": "Mock mode does not have a richer plan for: make me soup",
+            },
+            "tool_calls": [
+                {
+                    "name": "notify_user",
+                    "result": {
+                        "message": "Mock mode does not have a richer plan for: make me soup",
+                    },
+                }
+            ],
+        }
+
+        self.assertEqual(
+            spoken_outcome_message(task, "Done."),
+            "I don't know how to do that yet.",
+        )
+
     def test_completed_accessibility_task_speaks_voice_response(self) -> None:
         task = {
             "state": "completed",

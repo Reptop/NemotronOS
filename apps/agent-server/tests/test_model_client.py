@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+from dataclasses import replace
 
 from nemotronos_agent.config import AgentServerSettings
 from nemotronos_agent.model_client import (
     OpenAICompatibleModelClient,
+    OpenAIResponsesModelClient,
     PlannedToolCall,
+    build_model_client,
     _extract_accessibility_describe_arguments,
     _extract_browser_target,
     _extract_canvas_assignment_arguments,
@@ -62,6 +65,17 @@ class RecordingModelClient(OpenAICompatibleModelClient):
         return self.json_planned_call
 
 
+class RecordingResponsesModelClient(OpenAIResponsesModelClient):
+    def __init__(self, settings: AgentServerSettings, response_data: dict) -> None:
+        super().__init__(settings)
+        self.response_data = response_data
+        self.payloads: list[dict] = []
+
+    async def _post_response(self, payload: dict) -> dict:
+        self.payloads.append(payload)
+        return self.response_data
+
+
 class OpenAICompatibleModelClientTests(unittest.TestCase):
     def setUp(self) -> None:
         settings = AgentServerSettings(
@@ -105,6 +119,83 @@ class OpenAICompatibleModelClientTests(unittest.TestCase):
             client._chat_completions_url(),
             "http://localhost:11434/v1/chat/completions",
         )
+
+    def test_responses_api_converts_and_parses_function_call(self) -> None:
+        settings = replace(
+            self.settings,
+            model_provider="openai",
+            model_base_url="https://api.openai.com/v1",
+            model_name="gpt-5.6-luna",
+            model_api="responses",
+        )
+        client = RecordingResponsesModelClient(
+            settings,
+            {
+                "output": [
+                    {
+                        "type": "function_call",
+                        "name": "notify_user",
+                        "arguments": '{"message":"Ready."}',
+                    }
+                ]
+            },
+        )
+        tool_definitions = [
+            {
+                "name": "notify_user",
+                "description": "Tell the user something.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"message": {"type": "string"}},
+                },
+            }
+        ]
+
+        planned_call = asyncio.run(
+            client.plan_first_action("Tell me you are ready.", tool_definitions)
+        )
+
+        self.assertEqual(planned_call.name, "notify_user")
+        self.assertEqual(planned_call.arguments, {"message": "Ready."})
+        payload = client.payloads[0]
+        self.assertEqual(payload["model"], "gpt-5.6-luna")
+        self.assertEqual(payload["tool_choice"], "required")
+        self.assertFalse(payload["parallel_tool_calls"])
+        self.assertEqual(payload["reasoning"], {"effort": "low"})
+        self.assertEqual(payload["text"], {"verbosity": "low"})
+        self.assertFalse(payload["store"])
+        self.assertEqual(payload["tools"][0]["type"], "function")
+        self.assertFalse(payload["tools"][0]["strict"])
+        self.assertNotIn("messages", payload)
+
+    def test_responses_api_extracts_nested_output_text(self) -> None:
+        client = OpenAIResponsesModelClient(
+            replace(self.settings, model_api="responses")
+        )
+        data = {
+            "output": [
+                {
+                    "type": "message",
+                    "content": [
+                        {"type": "output_text", "text": "You are focused on Notepad."}
+                    ],
+                }
+            ]
+        }
+
+        self.assertEqual(
+            client._extract_response_text(data),
+            "You are focused on Notepad.",
+        )
+        self.assertEqual(
+            client._responses_url(),
+            "http://127.0.0.1:8000/v1/responses",
+        )
+
+    def test_build_model_client_selects_responses_transport(self) -> None:
+        client = build_model_client(replace(self.settings, model_api="responses"))
+
+        self.assertIsInstance(client, OpenAIResponsesModelClient)
 
     def test_extracts_legacy_function_call(self) -> None:
         message = {
@@ -703,6 +794,9 @@ class OpenAICompatibleModelClientTests(unittest.TestCase):
         self.assertIn("canvas_list_assignments_due_soon", system_prompt)
         self.assertIn("accessibility_describe_screen", system_prompt)
         self.assertIn("gmail_compose_draft", system_prompt)
+        self.assertIn("AI assistant for both work and everyday life", system_prompt)
+        self.assertIn("Do not add a wellness check to routine requests", system_prompt)
+        self.assertIn("Never claim to have feelings", system_prompt)
 
     def test_falls_back_when_model_planning_fails(self) -> None:
         client = RecordingModelClient(

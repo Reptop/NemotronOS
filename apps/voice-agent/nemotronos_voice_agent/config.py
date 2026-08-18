@@ -37,6 +37,11 @@ class VoiceAgentSettings:
     tts_speed: float
     openai_api_key: str
     openai_base_url: str
+    elevenlabs_api_key: str
+    elevenlabs_base_url: str
+    elevenlabs_voice_id: str
+    elevenlabs_tts_model: str
+    elevenlabs_output_format: str
     acknowledgement: str
     submitted_acknowledgement: str
     accessibility_acknowledgement: str
@@ -111,13 +116,27 @@ def get_settings() -> VoiceAgentSettings:
         tts_speed=float(os.getenv("VOICE_AGENT_TTS_SPEED", "1.0")),
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
         openai_base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+        elevenlabs_api_key=os.getenv("ELEVENLABS_API_KEY", ""),
+        elevenlabs_base_url=os.getenv(
+            "ELEVENLABS_BASE_URL",
+            "https://api.elevenlabs.io/v1",
+        ),
+        elevenlabs_voice_id=os.getenv("ELEVENLABS_VOICE_ID", ""),
+        elevenlabs_tts_model=os.getenv(
+            "ELEVENLABS_TTS_MODEL",
+            "eleven_flash_v2_5",
+        ),
+        elevenlabs_output_format=os.getenv(
+            "ELEVENLABS_OUTPUT_FORMAT",
+            "mp3_44100_128",
+        ),
         acknowledgement=os.getenv("VOICE_AGENT_ACK", "Of course, here you go."),
-        submitted_acknowledgement=os.getenv("VOICE_AGENT_SUBMITTED_ACK", "Got it."),
+        submitted_acknowledgement=os.getenv("VOICE_AGENT_SUBMITTED_ACK", "I'm on it."),
         accessibility_acknowledgement=os.getenv(
             "VOICE_AGENT_ACCESSIBILITY_ACK",
-            "Let me take a look.",
+            "Of course. Let me take a look.",
         ),
-        listening_acknowledgement=os.getenv("VOICE_AGENT_LISTENING_ACK", "I'm listening."),
+        listening_acknowledgement=os.getenv("VOICE_AGENT_LISTENING_ACK", "I'm here."),
         outcome_wait_seconds=float(os.getenv("VOICE_AGENT_OUTCOME_WAIT_SECONDS", "2.5")),
         final_outcome_wait_seconds=float(
             os.getenv("VOICE_AGENT_FINAL_OUTCOME_WAIT_SECONDS", "25")

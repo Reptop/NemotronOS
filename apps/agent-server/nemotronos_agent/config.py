@@ -21,6 +21,25 @@ class AgentServerSettings:
     agent_server_url: str
     request_timeout_seconds: float
     model_code_max_tokens: int = 2048
+    model_api: str = "chat_completions"
+    model_reasoning_effort: str = "low"
+    model_text_verbosity: str = "low"
+    transcription_provider: str = "openai"
+    elevenlabs_api_key: str = ""
+    elevenlabs_base_url: str = "https://api.elevenlabs.io/v1"
+    elevenlabs_stt_model: str = "scribe_v2"
+
+    @property
+    def active_transcription_model(self) -> str:
+        if self.transcription_provider.strip().lower() == "elevenlabs":
+            return self.elevenlabs_stt_model
+        return self.transcription_model
+
+    @property
+    def transcription_enabled(self) -> bool:
+        if self.transcription_provider.strip().lower() == "elevenlabs":
+            return bool(self.elevenlabs_api_key)
+        return bool(self.openai_api_key)
 
 
 def get_settings() -> AgentServerSettings:
@@ -34,7 +53,7 @@ def get_settings() -> AgentServerSettings:
         model_provider=model_provider,
         model_base_url=os.getenv("MODEL_BASE_URL", _default_model_base_url(model_provider)),
         model_name=os.getenv("MODEL_NAME", _default_model_name(model_provider)),
-        model_api_key=os.getenv("MODEL_API_KEY", _default_model_api_key(model_provider)),
+        model_api_key=_resolve_model_api_key(model_provider),
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
         transcription_model=os.getenv("TRANSCRIPTION_MODEL", "whisper-1"),
         openai_base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
@@ -46,16 +65,30 @@ def get_settings() -> AgentServerSettings:
         agent_server_url=os.getenv("AGENT_SERVER_URL", "http://localhost:5051"),
         request_timeout_seconds=float(os.getenv("REQUEST_TIMEOUT_SECONDS", "15")),
         model_code_max_tokens=int(os.getenv("MODEL_CODE_MAX_TOKENS", "2048")),
+        model_api=os.getenv("MODEL_API", _default_model_api(model_provider)),
+        model_reasoning_effort=os.getenv("MODEL_REASONING_EFFORT", "low"),
+        model_text_verbosity=os.getenv("MODEL_TEXT_VERBOSITY", "low"),
+        transcription_provider=os.getenv("TRANSCRIPTION_PROVIDER", "openai"),
+        elevenlabs_api_key=os.getenv("ELEVENLABS_API_KEY", ""),
+        elevenlabs_base_url=os.getenv(
+            "ELEVENLABS_BASE_URL",
+            "https://api.elevenlabs.io/v1",
+        ),
+        elevenlabs_stt_model=os.getenv("ELEVENLABS_STT_MODEL", "scribe_v2"),
     )
 
 
 def _default_model_base_url(model_provider: str) -> str:
+    if model_provider == "openai":
+        return "https://api.openai.com/v1"
     if model_provider == "ollama":
         return "http://localhost:11434"
     return "http://localhost:8000/v1"
 
 
 def _default_model_name(model_provider: str) -> str:
+    if model_provider == "openai":
+        return "gpt-5.6-luna"
     if model_provider == "ollama":
         return "nemotron-3-nano:4b"
     return "mock"
@@ -65,6 +98,18 @@ def _default_model_api_key(model_provider: str) -> str:
     if model_provider == "ollama":
         return "ollama"
     return "local-dev-key"
+
+
+def _resolve_model_api_key(model_provider: str) -> str:
+    if model_provider == "openai":
+        return os.getenv("OPENAI_API_KEY", "") or os.getenv("MODEL_API_KEY", "")
+    return os.getenv("MODEL_API_KEY", "") or _default_model_api_key(model_provider)
+
+
+def _default_model_api(model_provider: str) -> str:
+    if model_provider == "openai":
+        return "responses"
+    return "chat_completions"
 
 
 def _load_env_file(env_file: Path) -> None:

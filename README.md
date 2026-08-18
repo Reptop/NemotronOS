@@ -1,13 +1,21 @@
 # NemotronOS
 
-NemotronOS is a hackathon MVP for a local, private, voice-controlled PC agent inspired by Jarvis. This repo is set up so we can build and demo the platform-independent core on macOS now, then move the same project to a Windows RTX 4090 machine later and swap in NVIDIA NIM plus real Windows desktop tooling.
+NemotronOS is an accessibility-first, voice-controlled Windows PC agent. It began as a one-day NVIDIA hackathon project using Nemotron, but its provider boundaries now allow local or hosted models and speech services. The long-term direction is still a private local assistant; the current MVP deliberately supports cloud speech providers so the interaction can be developed and demonstrated on hardware that cannot run the original Nemotron stack.
+
+## Why accessibility
+
+Many computer workflows assume that a person can see the screen, use a mouse precisely, and type comfortably. Those assumptions create friction for people with limited mobility, repetitive strain injuries, temporary injuries, low vision, or blindness.
+
+NemotronOS explores a more complete voice interaction than one-command shortcuts. A user can ask what is on screen, describe a goal naturally, hear what the agent did, and approve state-changing work before it happens. The current Windows accessibility tool gathers foreground-window, visible-window, focused-element, and screenshot metadata; the voice agent turns safe results and action confirmations into spoken feedback. Filesystem changes and other medium-risk actions pause for approval.
+
+This remains an MVP, not a replacement for mature assistive technology. Screen understanding is still window-level rather than a complete Windows UI Automation tree or visual interpretation system, and several integrations need live Windows validation. The design goal is nevertheless concrete: reduce visual and physical interaction while keeping the user informed and in control.
 
 ## Current MVP
 
 - `apps/agent-server`: FastAPI runtime for tasks, events, policy checks, approvals, and tool dispatch.
 - `apps/tool-server`: FastAPI tool host with a mock Windows sandbox, safe path mapping, stored filesystem plans, apply flow, undo logs, and a few stub tools.
 - `apps/dashboard`: React + Vite dashboard for submitting tasks, watching task state, reviewing plans, approving medium-risk actions, and inspecting the event timeline.
-- `apps/voice-agent`: local voice loop for wake word detection, command submission, and spoken acknowledgement.
+- `apps/voice-agent`: Windows-oriented voice loop for wake word detection, command submission, and spoken feedback through Windows SAPI, OpenAI, or ElevenLabs.
 - `sandbox/fake_windows_home`: fake Windows filesystem rooted at `C:\`.
 
 ## Demo flow
@@ -99,7 +107,7 @@ The dashboard defaults to `http://localhost:5173` and polls the agent server at 
 
 ### Model providers
 
-The agent server keeps the existing OpenAI-compatible/NIM path and now also supports a local Ollama path. Keep `MODEL_MODE=openai_compatible` when you want real model planning, then select the provider with `MODEL_PROVIDER`.
+The agent server supports local NIM and Ollama planners through Chat Completions, plus hosted OpenAI models through the Responses API. Keep `MODEL_MODE=openai_compatible` when you want real model planning, then select the provider with `MODEL_PROVIDER`. The speech providers are independent from this choice.
 
 NIM example:
 
@@ -130,19 +138,52 @@ ollama serve
 
 NemotronOS calls Ollama through its OpenAI-compatible `v1/chat/completions` endpoint behind that base URL.
 
-### Voice commands
-
-The dashboard can record a short browser microphone clip and send it to the agent server through `POST /voice/tasks`. The agent server transcribes the audio with OpenAI's `/v1/audio/transcriptions` endpoint, then creates a normal NemotronOS task from the transcript.
-
-Set these values in `.env` to enable the temporary development speech-to-text path:
+Hosted OpenAI/Luna example:
 
 ```bash
+MODEL_MODE=openai_compatible
+MODEL_PROVIDER=openai
+MODEL_API=responses
+MODEL_BASE_URL=https://api.openai.com/v1
+MODEL_NAME=gpt-5.6-luna
+MODEL_REASONING_EFFORT=low
+MODEL_TEXT_VERBOSITY=low
+OPENAI_API_KEY=<your-openai-api-key>
+```
+
+`MODEL_PROVIDER=openai` defaults to those endpoint, model, and API settings. It uses the normal `OPENAI_API_KEY`; there is no separate Luna key. `MODEL_REASONING_EFFORT=low` is the recommended voice-assistant starting point for lower latency, while `medium` is the first setting to try if representative commands show routing or multi-step planning errors. Responses are sent with `store=false`, and the existing local policy/approval layer remains authoritative over state-changing tools.
+
+### Assistant personality
+
+The shared work-and-life assistant personality lives in `apps/agent-server/nemotronos_agent/assistant_personality.py`. Keep tone, wellbeing check-in rules, privacy, and relationship boundaries there instead of copying them into each task prompt. The agent prepends that stable personality to planning and user-facing narration instructions, while code generation keeps its strict code-only prompt.
+
+The default personality is caring but non-intrusive. It checks whether the user is okay when their request indicates pain, distress, exhaustion, danger, feeling overwhelmed, or repeated frustration. It does not interrupt routine work with an unnecessary wellness check. The local voice acknowledgements in `.env` can be tuned separately with `VOICE_AGENT_SUBMITTED_ACK`, `VOICE_AGENT_ACCESSIBILITY_ACK`, and `VOICE_AGENT_LISTENING_ACK`.
+
+The personality does add a small number of input tokens to model requests. Keep it concise and stable: OpenAI's GPT-5.6 guidance recommends stating style requirements once and keeping prompt prefixes lean, while stable repeated prefixes may benefit from prompt caching. Personality text does not affect Whisper transcription token usage or ElevenLabs speech usage.
+
+### Voice commands
+
+The dashboard can record a short browser microphone clip and send it to the agent server through `POST /voice/tasks`. The agent server transcribes the audio with the configured OpenAI or ElevenLabs provider, then creates a normal NemotronOS task from the transcript.
+
+OpenAI speech-to-text:
+
+```bash
+TRANSCRIPTION_PROVIDER=openai
 OPENAI_API_KEY=<your-openai-api-key>
 OPENAI_BASE_URL=https://api.openai.com/v1
 TRANSCRIPTION_MODEL=whisper-1
 ```
 
-The browser never receives the OpenAI API key. This is temporary scaffolding; the long-term privacy goal is still local speech-to-text.
+ElevenLabs speech-to-text:
+
+```bash
+TRANSCRIPTION_PROVIDER=elevenlabs
+ELEVENLABS_API_KEY=<your-elevenlabs-api-key>
+ELEVENLABS_BASE_URL=https://api.elevenlabs.io/v1
+ELEVENLABS_STT_MODEL=scribe_v2
+```
+
+The browser never receives either API key. Both are server-side development providers; the long-term privacy goal is still local speech-to-text.
 
 ### Local voice agent
 
@@ -159,7 +200,9 @@ Useful modes:
 - `VOICE_AGENT_WAKE_MODE=whisper_poll`: recommended current demo mode. It waits for speech, records until a short silence, and asks the agent server to detect `Jarvis` or `Computer` through `POST /voice/wake-detect`.
 - `VOICE_AGENT_WAKE_MODE=openwakeword`: optional local wake mode. It listens locally with openWakeWord, then only sends the post-wake command audio for transcription. The current installed local model is `hey_jarvis`, so use Whisper-poll mode if you want `Computer`.
 - `nemotronos-voice-agent --mode manual`: no microphone; type commands into the console for quick testing.
-- `nemotronos-voice-agent --test-tts "Testing the NemotronOS voice."`: speak once through the configured TTS backend and exit. This is the quickest way to diagnose OpenAI TTS without starting the wake loop.
+- `nemotronos-voice-agent --test-tts "Testing the NemotronOS voice."`: speak once through the configured TTS backend and exit. This is the quickest way to diagnose Windows SAPI, OpenAI, or ElevenLabs TTS without starting the wake loop.
+- `nemotronos-voice-agent --tts-mode elevenlabs`: override `VOICE_AGENT_TTS_MODE` for only this run. This can be combined with `--test-tts`, so `.env` can stay on OpenAI while `nemotronos-voice-agent --tts-mode elevenlabs --test-tts "Testing ElevenLabs."` selects ElevenLabs from the terminal.
+- When the voice agent runs inside WSL, cloud-generated OpenAI or ElevenLabs audio is bridged to the Windows media player through WSL interoperability. `powershell.exe` and `wslpath` must be available from the WSL shell; both are present in a standard WSL installation.
 - `VOICE_AGENT_INPUT_DEVICE`: optional sounddevice index or name when Windows picks the wrong microphone.
 - `VOICE_AGENT_OPENWAKEWORD_MODELS`: semicolon-separated openWakeWord model names or model paths. The default is `hey_jarvis`.
 - `VOICE_AGENT_OPENWAKEWORD_THRESHOLD` and `VOICE_AGENT_OPENWAKEWORD_FRAME_MS`: tune local wake sensitivity and streaming frame size.
@@ -167,15 +210,18 @@ Useful modes:
 - `VOICE_AGENT_SPEECH_THRESHOLD` and `VOICE_AGENT_LISTEN_BLOCK_MS`: tune speech detection sensitivity and how quickly silence is noticed.
 - `VOICE_AGENT_SUBMITTED_ACK`: quick neutral acknowledgement after a command is accepted locally. Keep it neutral because the task may still fail or be unsupported.
 - `VOICE_AGENT_ACCESSIBILITY_ACK`: quick acknowledgement for screen-reading or "what did you do" commands. The current demo value is `Let me take a look.`
-- `VOICE_AGENT_LISTENING_ACK`: optional prompt after a wake-only utterance. The current demo value is `uh huh`; the voice agent waits for this short acknowledgement to finish before recording the command.
+- `VOICE_AGENT_LISTENING_ACK`: optional prompt after a wake-only utterance. The current demo value is `I'm here`; the voice agent waits for this short acknowledgement to finish before recording the command.
 - `VOICE_AGENT_OUTCOME_WAIT_SECONDS`: short foreground wait after command submission before the agent returns to listening.
 - `VOICE_AGENT_FINAL_OUTCOME_WAIT_SECONDS`: longer background wait for delayed spoken results such as accessibility narration.
-- `VOICE_AGENT_TTS_MODE`: `windows_sapi` for the built-in offline Windows voices, or `openai` for the more natural temporary dev voice path.
+- `VOICE_AGENT_TTS_MODE`: `windows_sapi` for the built-in offline Windows voices, `openai` for OpenAI speech, or `elevenlabs` for ElevenLabs speech.
 - `VOICE_AGENT_TTS_VOICE`: for `windows_sapi`, use an installed SAPI voice such as `Microsoft Zira Desktop`; for `openai`, use a TTS voice such as `marin`, `cedar`, `coral`, `sage`, or `nova`.
 - `VOICE_AGENT_TTS_MODEL`: default `gpt-4o-mini-tts` for the OpenAI TTS mode.
 - `VOICE_AGENT_TTS_RESPONSE_FORMAT`: default `mp3`; this is the most reliable Windows playback path for the current demo.
 - `VOICE_AGENT_TTS_INSTRUCTIONS`: optional style prompt for OpenAI TTS, for example `Speak like a calm, warm PC accessibility assistant.`
 - `VOICE_AGENT_TTS_SPEED`: optional speech speed; default `1.0`.
+- `ELEVENLABS_VOICE_ID`: required for ElevenLabs TTS; copy a voice ID from your ElevenLabs voice library.
+- `ELEVENLABS_TTS_MODEL`: defaults to `eleven_flash_v2_5` for low-latency agent feedback.
+- `ELEVENLABS_OUTPUT_FORMAT`: defaults to `mp3_44100_128`, which works with the existing Windows playback path.
 - If the wake word is heard without a command, the voice agent immediately treats the next utterance as the command.
 
 Example:
@@ -185,6 +231,32 @@ Example:
 This is still a scaffold. The current recommended demo path is the refined Whisper-poll loop because it supports both `Jarvis` and `Computer`. It gives a short wake acknowledgement, gives a quick neutral acknowledgement after command submission, uses a more specific "Let me take a look" acknowledgement for accessibility narration, and speaks again for unsupported, failed, approval-gated, spoken-result, or safely narrated completed actions. Speech output is serialized so the quick acknowledgement and final narration do not overlap. If a task is still running after the short foreground wait, the voice agent keeps a background watcher alive so delayed accessibility responses such as "explain the active window" are still spoken when the task completes. The next privacy step is local NVIDIA Speech NIM/Riva ASR and TTS when those services are available, plus either a custom openWakeWord model or another local detector for "Computer."
 
 The planner is model-first, but common speech variants are normalized for the active demo tools. Phrases such as `pull up`, `bring up`, `take me to`, `put on`, `look up`, `write in Notepad`, `prepare an email`, `show me Canvas homework`, `help me see this page`, and `make me code` route to the same tools as their more literal equivalents.
+
+For an ElevenLabs speech-to-text and text-to-speech demo, add the key and voice ID to the repo-root `.env` and set:
+
+```bash
+TRANSCRIPTION_PROVIDER=elevenlabs
+VOICE_AGENT_TTS_MODE=elevenlabs
+ELEVENLABS_API_KEY=<your-elevenlabs-api-key>
+ELEVENLABS_STT_MODEL=scribe_v2
+ELEVENLABS_VOICE_ID=<your-elevenlabs-voice-id>
+ELEVENLABS_TTS_MODEL=eleven_flash_v2_5
+ELEVENLABS_OUTPUT_FORMAT=mp3_44100_128
+```
+
+The same `ELEVENLABS_API_KEY` is read only by the agent server and local voice agent. `.env` is gitignored; `.env.example` contains safe placeholders and may be committed.
+
+#### ElevenLabs integration status
+
+NemotronOS now has a concrete ElevenLabs provider integration rather than only a proposed experiment:
+
+- Speech-to-text uses ElevenLabs Scribe v2 through the agent server. The provider is selected with `TRANSCRIPTION_PROVIDER=elevenlabs`, and the transcript enters the same task, policy, and approval pipeline as typed or OpenAI-transcribed commands.
+- Text-to-speech uses the ElevenLabs text-to-speech endpoint with a configurable voice ID, `eleven_flash_v2_5` by default, and MP3 output. The terminal-level `--tts-mode elevenlabs` override makes it possible to compare providers without editing `.env`.
+- The voice loop speaks both immediate acknowledgements and final model responses. It also handles conversational `notify_user` results, delayed accessibility narration, approval requests, and failure messages without exposing private dictated content unnecessarily.
+- WSL playback translates Linux temporary paths with `wslpath` and sends the generated audio to the Windows media player through `powershell.exe`. This allows the agent server, Luna planner, and local voice loop to remain in WSL without maintaining a second Windows clone.
+- Provider errors include the ElevenLabs HTTP status and a bounded response detail, then fall back to the local Windows voice path so a speech-provider failure does not crash the assistant loop.
+
+The TTS path has been live-validated with a free-plan-compatible ElevenLabs voice: the user heard the generated WSL bridge test and the immediate task acknowledgement, and a Luna conversational reply was successfully extracted and sent through the same ElevenLabs playback path. The ElevenLabs request contract and fallback behavior have automated coverage. Microphone-driven ElevenLabs transcription is implemented and covered with mocked provider tests, but a live wake-word/transcription run is still an explicit validation step rather than a completed claim.
 
 For a more human-sounding demo voice, keep the existing temporary OpenAI dev key in `.env` and set:
 
@@ -347,6 +419,6 @@ Currently registered tool-server tools include `app_launch`, `keyboard_type`, `a
 ## Notes
 
 - Stores are in memory for this MVP, but the layout is intentionally modular so we can replace them with SQLite or Postgres later.
-- `MODEL_MODE=openai_compatible` is scaffolded for OpenAI-compatible endpoints including local NVIDIA NIM and local Ollama.
+- `MODEL_MODE=openai_compatible` supports local NVIDIA NIM and Ollama through Chat Completions and hosted OpenAI through the Responses API. The speech provider is configured separately, so ElevenLabs STT/TTS does not require changing the planning model.
 - `DEFAULT_DOWNLOADS_PATH` controls the Windows path the model layer uses for the Downloads demo. The default is `C:\Users\Raed\Downloads` for the current fake Windows sandbox, but it should stay env-driven for real Windows testing.
 - `TOOL_MODE=mock_windows` keeps platform behavior behind interfaces so we avoid macOS-only dependencies while developing away from the Windows machine.
