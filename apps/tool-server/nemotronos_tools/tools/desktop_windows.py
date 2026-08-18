@@ -142,6 +142,7 @@ class WindowsDesktopBackend(DesktopBackend):
     def __init__(self) -> None:
         self._last_process_id: int | None = None
         self._last_window_title_hint: str | None = None
+        self._last_screenshot_path: Path | None = None
 
     def capture_screen(self) -> dict[str, Any]:
         self._ensure_windows_runtime()
@@ -161,6 +162,7 @@ class WindowsDesktopBackend(DesktopBackend):
             raise OSError(f"screen_capture failed: {exc}") from exc
 
         width, height = screenshot.size
+        self._last_screenshot_path = screenshot_path
         captured_at = datetime.now(timezone.utc).isoformat()
         try:
             foreground_window = self._foreground_window_rect()
@@ -181,6 +183,23 @@ class WindowsDesktopBackend(DesktopBackend):
             "height": height,
             "virtual_screen_origin": virtual_screen_origin,
             **({"foreground_window": foreground_window} if foreground_window else {}),
+        }
+
+    def open_last_screenshot(self) -> dict[str, Any]:
+        self._ensure_windows_runtime()
+        screenshot_path = self._resolve_last_screenshot_path()
+        process = subprocess.Popen(  # noqa: S603
+            ["explorer.exe", str(screenshot_path)],
+            close_fds=True,
+        )
+        self._last_screenshot_path = screenshot_path
+        return {
+            "mode": "windows",
+            "opened": True,
+            "path": str(screenshot_path),
+            "viewer": "default",
+            "pid": process.pid,
+            "opened_at": datetime.now(timezone.utc).isoformat(),
         }
 
     def describe_screen(self, include_screenshot: bool, max_windows: int) -> dict[str, Any]:
@@ -464,6 +483,25 @@ class WindowsDesktopBackend(DesktopBackend):
 
     def _screenshot_directory(self) -> Path:
         return Path(tempfile.gettempdir()) / "NemotronOS" / "screenshots"
+
+    def _resolve_last_screenshot_path(self) -> Path:
+        screenshot_dir = self._screenshot_directory()
+        candidate = self._last_screenshot_path
+        if candidate is None or not candidate.is_file():
+            screenshots = [
+                path
+                for path in screenshot_dir.glob("screenshot-*.png")
+                if path.is_file()
+            ]
+            if not screenshots:
+                raise ValueError("No NemotronOS screenshot is available to open yet.")
+            candidate = max(screenshots, key=lambda path: path.stat().st_mtime_ns)
+
+        resolved_dir = screenshot_dir.resolve()
+        resolved_candidate = candidate.resolve()
+        if resolved_candidate.parent != resolved_dir or resolved_candidate.suffix.lower() != ".png":
+            raise ValueError("The latest screenshot path is outside the NemotronOS screenshot folder.")
+        return resolved_candidate
 
     def _ensure_windows_runtime(self) -> None:
         if not IS_WINDOWS_RUNTIME or USER32 is None or KERNEL32 is None:

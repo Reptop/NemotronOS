@@ -102,6 +102,32 @@ class CoordinatorYouTubeTests(unittest.TestCase):
         self.assertEqual(narration, "I opened cnn.com.")
         self.assertNotIn("private", narration)
 
+    def test_screen_capture_narration_is_short_and_omits_saved_path(self) -> None:
+        narration = build_safe_action_narration(
+            "screen_capture",
+            result={
+                "captured": True,
+                "path": r"C:\Users\Shrey\AppData\Local\Temp\NemotronOS\screenshots\private.png",
+                "width": 6840,
+                "height": 2160,
+            },
+            arguments={},
+        )
+
+        self.assertEqual(narration, "I took a screenshot.")
+        self.assertNotIn("Shrey", narration)
+        self.assertNotIn("6840", narration)
+
+    def test_screenshot_open_narration_is_short(self) -> None:
+        narration = build_safe_action_narration(
+            "screenshot_open",
+            result={"opened": True, "path": r"C:\private\screenshot.png"},
+            arguments={},
+        )
+
+        self.assertEqual(narration, "I opened the screenshot.")
+        self.assertNotIn("private", narration)
+
 
 if __name__ == "__main__":
     unittest.main()

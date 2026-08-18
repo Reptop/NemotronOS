@@ -135,6 +135,13 @@ class MockModelClient(ModelClient):
                 rationale="Open Canvas and navigate to the requested course.",
             )
 
+        if _is_open_recent_screenshot_goal(goal):
+            return PlannedToolCall(
+                name="screenshot_open",
+                arguments={},
+                rationale="Open the most recent NemotronOS screenshot.",
+            )
+
         accessibility_arguments = _extract_accessibility_describe_arguments(goal)
         if accessibility_arguments:
             return PlannedToolCall(
@@ -314,8 +321,17 @@ class OpenAICompatibleModelClient(ModelClient):
             tool_name = "canvas_open_course"
             arguments = canvas_arguments
             rationale = "Normalize Canvas course navigation wording."
+        open_recent_screenshot = _is_open_recent_screenshot_goal(goal)
+        if open_recent_screenshot and tool_name != "screenshot_open":
+            tool_name = "screenshot_open"
+            arguments = {}
+            rationale = "Normalize screenshot follow-up to opening the latest capture."
         accessibility_arguments = _extract_accessibility_describe_arguments(goal)
-        if accessibility_arguments and tool_name != "accessibility_describe_screen":
+        if (
+            accessibility_arguments
+            and not open_recent_screenshot
+            and tool_name != "accessibility_describe_screen"
+        ):
             tool_name = "accessibility_describe_screen"
             arguments = accessibility_arguments
             rationale = "Normalize screen-context request to accessibility narration."
@@ -532,6 +548,11 @@ class OpenAICompatibleModelClient(ModelClient):
             "and pick exactly one next tool call from the provided tool list. "
             "Do not answer in prose. Do not invent tools. "
             "Use Windows-style paths when paths are needed. "
+            "For greetings, ordinary conversation, general knowledge, explanations, "
+            "and simple arithmetic that you can answer directly, call notify_user with "
+            "the actual concise answer. Do not launch an app, browser, or Calculator for "
+            "these requests. Only call app_launch for Calculator when the user explicitly "
+            "asks to open, launch, or start the Calculator application. "
             "If the user asks to organize Downloads and see the plan first, call "
             f"fs_plan_changes on {self.settings.default_downloads_path}. "
             "Treat semantically equivalent phrasing as the same command: open, launch, "
@@ -563,6 +584,9 @@ class OpenAICompatibleModelClient(ModelClient):
             "read, summarize, or explain the active/current/foreground window, app, "
             "page, screen, desktop, or visible context, call accessibility_describe_screen "
             "with include_screenshot=true and max_windows=12. "
+            "If the user asks to open, show, or view the screenshot just taken or the most "
+            "recent screenshot, call screenshot_open. Do not call screen_capture for that "
+            "follow-up; screen_capture is only for taking a new screenshot. "
             "If the user asks for YouTube content, call youtube_open. Use action='random' "
             "for random/recommended/any/surprise video requests, action='search' with query and "
             "prefer_video_results=true for play/watch/find/search/look up/pull up video, title, "
@@ -597,6 +621,9 @@ class OpenAICompatibleModelClient(ModelClient):
             '{"name":"tool_name","arguments":{},"rationale":"short reason"}. '
             f"Allowed tools: {tool_names}.{forced_tool} "
             "Interpret short or noisy voice transcripts naturally. "
+            "For greetings, ordinary conversation, general knowledge, explanations, and "
+            "simple arithmetic, choose notify_user and put the actual concise answer in "
+            "message. Do not open Calculator unless the user explicitly asks to launch it. "
             "For generic web tasks that require reading or interacting with live page content, "
             "prefer browser_session_ensure, browser_navigate, browser_snapshot, browser_click, "
             "browser_type, browser_select_option, and browser_press. "
@@ -619,6 +646,9 @@ class OpenAICompatibleModelClient(ModelClient):
             "summarizing, or explaining the current screen, active window, foreground app, "
             "visible page, or desktop context, use accessibility_describe_screen with "
             "include_screenshot=true and max_windows=12. "
+            "If the user asks to open, show, or view the screenshot just taken or the most "
+            "recent screenshot, use screenshot_open. Do not call screen_capture for that "
+            "follow-up; screen_capture is only for taking a new screenshot. "
             "For Discord or active-chat messages, use discord_send_message and put only the message body "
             "in text. For Canvas assignment/homework due-date requests, use "
             "canvas_list_assignments_due_soon. For Canvas course navigation, use "
@@ -1012,6 +1042,13 @@ class OpenAICompatibleModelClient(ModelClient):
                 name="canvas_open_course",
                 arguments=canvas_arguments,
                 rationale="Fallback parser routed Canvas course navigation.",
+            )
+
+        if _is_open_recent_screenshot_goal(goal):
+            return PlannedToolCall(
+                name="screenshot_open",
+                arguments={},
+                rationale="Fallback parser routed the latest screenshot opening request.",
             )
 
         accessibility_arguments = _extract_accessibility_describe_arguments(goal)
@@ -1722,6 +1759,21 @@ def _extract_accessibility_describe_arguments(goal: str) -> dict[str, Any] | Non
         "include_screenshot": True,
         "max_windows": 12,
     }
+
+
+def _is_open_recent_screenshot_goal(goal: str) -> bool:
+    lowered_goal = goal.lower()
+    if not re.search(r"\b(?:screenshot|screen\s+shot|capture)\b", lowered_goal):
+        return False
+    has_open_intent = re.search(
+        r"\b(?:open|show|view|display|pull\s+up|bring\s+up|let\s+me\s+see)\b",
+        lowered_goal,
+    )
+    has_recent_reference = re.search(
+        r"\b(?:that|it|last|latest|recent|previous|just|you\s+took|you\s+captured)\b",
+        lowered_goal,
+    )
+    return bool(has_open_intent and has_recent_reference)
 
 
 def _extract_youtube_arguments(goal: str) -> dict[str, Any] | None:

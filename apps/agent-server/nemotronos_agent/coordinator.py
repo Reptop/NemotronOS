@@ -1223,6 +1223,12 @@ def build_safe_action_narration(
     if tool_name == "fs_apply_changes":
         return "I applied the approved file organization plan and created an undo log."
 
+    if tool_name == "screen_capture":
+        return "I took a screenshot."
+
+    if tool_name == "screenshot_open":
+        return "I opened the screenshot."
+
     if tool_name == "mouse_click":
         return "I clicked the requested location."
 

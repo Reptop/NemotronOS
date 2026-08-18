@@ -256,6 +256,7 @@ async def speak_for_task_outcome(
     )
     if _is_terminal_task(latest_task):
         message = spoken_outcome_message(latest_task, settings.acknowledgement)
+        print_spoken_response(message)
         speak_background(message, speaker)
         return
 
@@ -289,6 +290,7 @@ async def speak_for_final_task_outcome(
         return
 
     message = spoken_outcome_message(final_task, settings.acknowledgement)
+    print_spoken_response(message)
     await speak_async(message, speaker)
 
 
@@ -424,6 +426,12 @@ def _is_unsupported_notify_task(task: dict) -> bool:
 def speak(text: str, speaker) -> None:
     if text.strip():
         speaker.speak(text)
+
+
+def print_spoken_response(text: str) -> None:
+    cleaned_text = text.strip()
+    if cleaned_text:
+        print(f"NemotronOS: {cleaned_text}")
 
 
 def speak_background(text: str, speaker) -> None:

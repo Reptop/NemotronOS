@@ -15,8 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 openwakeword = [
-  "onnxruntime>=1.17.0",
-  "openwakeword>=0.6.0",
+  "pyopen-wakeword>=1.1.0,<2",
 ]
 
 [project.scripts]

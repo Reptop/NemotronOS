@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import unittest
+from tempfile import TemporaryDirectory
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from nemotronos_tools.tools.desktop_windows import WindowsDesktopBackend
@@ -52,6 +54,50 @@ class ScreenCaptureTests(unittest.TestCase):
         self.assertIsNotNone(fake_screenshot.saved_path)
         self.assertEqual(Path(result["path"]), fake_screenshot.saved_path)
         self.assertEqual(fake_screenshot.saved_format, "PNG")
+
+    def test_open_last_screenshot_uses_default_windows_viewer(self) -> None:
+        backend = WindowsDesktopBackend()
+        with TemporaryDirectory() as temp_dir:
+            screenshot_dir = Path(temp_dir)
+            screenshot_path = screenshot_dir / "screenshot-20260818T120000-abcd1234.png"
+            screenshot_path.write_bytes(b"fake-png-data")
+            backend._last_screenshot_path = screenshot_path
+
+            with (
+                patch.object(WindowsDesktopBackend, "_ensure_windows_runtime"),
+                patch.object(
+                    WindowsDesktopBackend,
+                    "_screenshot_directory",
+                    return_value=screenshot_dir,
+                ),
+                patch(
+                    "nemotronos_tools.tools.desktop_windows.subprocess.Popen",
+                    return_value=SimpleNamespace(pid=4321),
+                ) as popen_mock,
+            ):
+                result = backend.open_last_screenshot()
+
+        popen_mock.assert_called_once_with(
+            ["explorer.exe", str(screenshot_path.resolve())],
+            close_fds=True,
+        )
+        self.assertTrue(result["opened"])
+        self.assertEqual(result["path"], str(screenshot_path.resolve()))
+        self.assertEqual(result["pid"], 4321)
+
+    def test_open_last_screenshot_reports_when_none_exists(self) -> None:
+        backend = WindowsDesktopBackend()
+        with TemporaryDirectory() as temp_dir:
+            with (
+                patch.object(WindowsDesktopBackend, "_ensure_windows_runtime"),
+                patch.object(
+                    WindowsDesktopBackend,
+                    "_screenshot_directory",
+                    return_value=Path(temp_dir),
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, "No NemotronOS screenshot"):
+                    backend.open_last_screenshot()
 
 
 if __name__ == "__main__":

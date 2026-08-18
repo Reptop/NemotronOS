@@ -9,6 +9,10 @@ class DesktopBackend(ABC):
     def capture_screen(self) -> dict[str, Any]:
         """Return a platform-specific screen capture payload."""
 
+    def open_last_screenshot(self) -> dict[str, Any]:
+        """Open the most recent screenshot created by this backend."""
+        raise NotImplementedError
+
     @abstractmethod
     def describe_screen(self, include_screenshot: bool, max_windows: int) -> dict[str, Any]:
         """Return structured accessibility context for the current desktop."""

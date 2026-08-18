@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import io
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from nemotronos_voice_agent.main import (
     command_acknowledgement,
     is_spoken_result_command,
+    print_spoken_response,
     speak_for_final_task_outcome,
     spoken_outcome_message,
 )
@@ -32,6 +35,17 @@ class _CapturingSpeaker:
 
 
 class VoiceOutcomeTests(unittest.TestCase):
+    def test_spoken_response_is_also_printed_to_console(self) -> None:
+        output = io.StringIO()
+
+        with patch("sys.stdout", output):
+            print_spoken_response("Hi Shrey! My name is NemotronOS.")
+
+        self.assertEqual(
+            output.getvalue(),
+            "NemotronOS: Hi Shrey! My name is NemotronOS.\n",
+        )
+
     def test_unknown_notify_task_gets_uncertainty_message(self) -> None:
         task = {
             "state": "completed",

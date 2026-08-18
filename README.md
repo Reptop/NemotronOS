@@ -198,13 +198,13 @@ nemotronos-voice-agent
 Useful modes:
 
 - `VOICE_AGENT_WAKE_MODE=whisper_poll`: recommended current demo mode. It waits for speech, records until a short silence, and asks the agent server to detect `Jarvis` or `Computer` through `POST /voice/wake-detect`.
-- `VOICE_AGENT_WAKE_MODE=openwakeword`: optional local wake mode. It listens locally with openWakeWord, then only sends the post-wake command audio for transcription. The current installed local model is `hey_jarvis`, so use Whisper-poll mode if you want `Computer`.
+- `VOICE_AGENT_WAKE_MODE=openwakeword`: optional local wake mode. It listens locally with the Python-3.12-compatible `pyopen-wakeword` runtime, then only sends the post-wake command audio for transcription. The built-in model is `hey_jarvis`, so say `Hey Jarvis`; a phrase such as `Hey Nova` requires a trained custom `.tflite` model.
 - `nemotronos-voice-agent --mode manual`: no microphone; type commands into the console for quick testing.
 - `nemotronos-voice-agent --test-tts "Testing the NemotronOS voice."`: speak once through the configured TTS backend and exit. This is the quickest way to diagnose Windows SAPI, OpenAI, or ElevenLabs TTS without starting the wake loop.
 - `nemotronos-voice-agent --tts-mode elevenlabs`: override `VOICE_AGENT_TTS_MODE` for only this run. This can be combined with `--test-tts`, so `.env` can stay on OpenAI while `nemotronos-voice-agent --tts-mode elevenlabs --test-tts "Testing ElevenLabs."` selects ElevenLabs from the terminal.
 - When the voice agent runs inside WSL, cloud-generated OpenAI or ElevenLabs audio is bridged to the Windows media player through WSL interoperability. `powershell.exe` and `wslpath` must be available from the WSL shell; both are present in a standard WSL installation.
 - `VOICE_AGENT_INPUT_DEVICE`: optional sounddevice index or name when Windows picks the wrong microphone.
-- `VOICE_AGENT_OPENWAKEWORD_MODELS`: semicolon-separated openWakeWord model names or model paths. The default is `hey_jarvis`.
+- `VOICE_AGENT_OPENWAKEWORD_MODELS`: semicolon-separated built-in model names or custom `.tflite` paths. Bundled names are `hey_jarvis`, `okay_nabu`, `hey_mycroft`, `alexa`, and `hey_rhasspy`; the default is `hey_jarvis`.
 - `VOICE_AGENT_OPENWAKEWORD_THRESHOLD` and `VOICE_AGENT_OPENWAKEWORD_FRAME_MS`: tune local wake sensitivity and streaming frame size.
 - `VOICE_AGENT_WAKE_SILENCE_SECONDS`, `VOICE_AGENT_WAKE_CHUNK_SECONDS`, `VOICE_AGENT_COMMAND_SILENCE_SECONDS`, and `VOICE_AGENT_COMMAND_CHUNK_SECONDS`: tune the faster wake capture separately from the longer command capture.
 - `VOICE_AGENT_SPEECH_THRESHOLD` and `VOICE_AGENT_LISTEN_BLOCK_MS`: tune speech detection sensitivity and how quickly silence is noticed.
@@ -230,7 +230,28 @@ Example:
 
 This is still a scaffold. The current recommended demo path is the refined Whisper-poll loop because it supports both `Jarvis` and `Computer`. It gives a short wake acknowledgement, gives a quick neutral acknowledgement after command submission, uses a more specific "Let me take a look" acknowledgement for accessibility narration, and speaks again for unsupported, failed, approval-gated, spoken-result, or safely narrated completed actions. Speech output is serialized so the quick acknowledgement and final narration do not overlap. If a task is still running after the short foreground wait, the voice agent keeps a background watcher alive so delayed accessibility responses such as "explain the active window" are still spoken when the task completes. The next privacy step is local NVIDIA Speech NIM/Riva ASR and TTS when those services are available, plus either a custom openWakeWord model or another local detector for "Computer."
 
+Install the local wake runtime with `python -m pip install -e 'apps/voice-agent[openwakeword]'`, set `VOICE_AGENT_WAKE_MODE=openwakeword`, and run `nemotronos-voice-agent --mode openwakeword`. Local inference recognizes the wake phrase before any audio is sent to the configured transcription provider. The current built-in test phrase is `Hey Jarvis`.
+
 The planner is model-first, but common speech variants are normalized for the active demo tools. Phrases such as `pull up`, `bring up`, `take me to`, `put on`, `look up`, `write in Notepad`, `prepare an email`, `show me Canvas homework`, `help me see this page`, and `make me code` route to the same tools as their more literal equivalents.
+
+### Live-verified WSL and Windows voice flow
+
+The current split process has been exercised end to end on Windows 11 with the agent, dashboard, local wake detector, and cloud providers running from WSL while the desktop tool server runs in an interactive Windows PowerShell session:
+
+```bash
+# WSL terminal 1: launch the interactive Windows tool server
+python3 scripts/run_windows_tool_server.py
+
+# WSL terminal 2: run the Luna agent server and dashboard
+python3 scripts/run_wsl_agent_dashboard.py
+
+# WSL terminal 3, with .venv activated: run local wake detection and ElevenLabs TTS
+nemotronos-voice-agent --mode openwakeword --tts-mode elevenlabs
+```
+
+This process has live-verified the bundled `Hey Jarvis` detector, local wake inference, microphone command capture, ElevenLabs Scribe transcription, OpenAI Responses planning with `gpt-5.6-luna`, terminal text responses, ElevenLabs speech playback through the WSL-to-Windows bridge, and real Windows screenshot actions. The tested interaction sequence includes answering a simple arithmetic question, taking a screenshot with the spoken confirmation `I took a screenshot.`, and then resolving `Open that screenshot that you just took` to `screenshot_open`, which opens the saved PNG in the default Windows image viewer and confirms `I opened the screenshot.`
+
+The two launch scripts use Uvicorn auto-reload while developing. If a newly added agent tool is not recognized, restart both launch scripts so the WSL agent registry and Windows tool registry load the same source revision. The local voice-agent process can then reconnect through its normal per-command HTTP requests.
 
 For an ElevenLabs speech-to-text and text-to-speech demo, add the key and voice ID to the repo-root `.env` and set:
 
@@ -253,6 +274,7 @@ NemotronOS now has a concrete ElevenLabs provider integration rather than only a
 - Speech-to-text uses ElevenLabs Scribe v2 through the agent server. The provider is selected with `TRANSCRIPTION_PROVIDER=elevenlabs`, and the transcript enters the same task, policy, and approval pipeline as typed or OpenAI-transcribed commands.
 - Text-to-speech uses the ElevenLabs text-to-speech endpoint with a configurable voice ID, `eleven_flash_v2_5` by default, and MP3 output. The terminal-level `--tts-mode elevenlabs` override makes it possible to compare providers without editing `.env`.
 - The voice loop speaks both immediate acknowledgements and final model responses. It also handles conversational `notify_user` results, delayed accessibility narration, approval requests, and failure messages without exposing private dictated content unnecessarily.
+- Final responses are printed in the voice-agent console as `NemotronOS: <response>` at the same time they are spoken, providing a text transcript for accessibility, debugging, and demonstrations.
 - WSL playback translates Linux temporary paths with `wslpath` and sends the generated audio to the Windows media player through `powershell.exe`. This allows the agent server, Luna planner, and local voice loop to remain in WSL without maintaining a second Windows clone.
 - Provider errors include the ElevenLabs HTTP status and a bounded response detail, then fall back to the local Windows voice path so a speech-provider failure does not crash the assistant loop.
 
@@ -324,7 +346,7 @@ These commands route through the normal model-first tool planner, then gather st
 
 If the local model returns an empty, clipped, or markdown-fragment accessibility narration, the coordinator falls back to a plain spoken summary built from the structured window context so the voice response stays useful during demos. The fallback avoids internal implementation caveats and speaks in user-facing terms.
 
-Successful user-visible actions now also store a short safe narration under `voice_response_text`, so the local voice agent can confirm what actually happened after completion without echoing private dictated content. Examples include opening websites, opening Canvas courses, sending a Discord message to the active conversation, typing into Notepad, clicking a YouTube video result, inserting generated code into VS Code, creating a Gmail draft, creating a Canvas TODO note, and applying an approved file plan.
+Successful user-visible actions now also store a short safe narration under `voice_response_text`, so the local voice agent can confirm what actually happened after completion without echoing private dictated content. Examples include taking or opening the latest screenshot, opening websites, opening Canvas courses, sending a Discord message to the active conversation, typing into Notepad, clicking a YouTube video result, inserting generated code into VS Code, creating a Gmail draft, creating a Canvas TODO note, and applying an approved file plan. Screenshot confirmations are deliberately brief (`I took a screenshot.` or `I opened the screenshot.`) and do not read the saved path or display dimensions aloud. `screenshot_open` is intentionally narrower than arbitrary file launching: it opens only the latest PNG in NemotronOS's controlled screenshot directory through the Windows default image viewer.
 
 Gmail/browser-agent test prompts:
 
@@ -414,7 +436,7 @@ If the tool server is launched from a hidden or non-interactive service context,
 - `GET /health`
 - `POST /demo/reset-downloads`
 
-Currently registered tool-server tools include `app_launch`, `keyboard_type`, `accessibility_describe_screen`, `sticky_note_create`, `vscode_paste_code`, `discord_send_message`, `email_create_draft`, `mouse_click`, `browser_open`, `browser_session_ensure`, `browser_navigate`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_select_option`, `browser_press`, `canvas_open_course`, `canvas_list_assignments_due_soon`, `youtube_open`, `youtube_click_video`, `fs_plan_changes`, `fs_apply_changes`, `screen_capture`, `shell_run`, and `notify_user`.
+Currently registered tool-server tools include `app_launch`, `keyboard_type`, `accessibility_describe_screen`, `sticky_note_create`, `vscode_paste_code`, `discord_send_message`, `email_create_draft`, `mouse_click`, `browser_open`, `browser_session_ensure`, `browser_navigate`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_select_option`, `browser_press`, `canvas_open_course`, `canvas_list_assignments_due_soon`, `youtube_open`, `youtube_click_video`, `fs_plan_changes`, `fs_apply_changes`, `screen_capture`, `screenshot_open`, `shell_run`, and `notify_user`.
 
 ## Notes
 

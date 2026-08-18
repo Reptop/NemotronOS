@@ -34,6 +34,7 @@ class PolicyEngine:
     def classify(self, tool_name: str, arguments: dict[str, Any]) -> PolicyDecision:
         if tool_name in {
             "screen_capture",
+            "screenshot_open",
             "accessibility_describe_screen",
             "fs_plan_changes",
             "notify_user",

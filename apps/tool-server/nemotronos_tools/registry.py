@@ -40,7 +40,7 @@ from .tools.desktop_windows import WindowsDesktopBackend
 from .tools.filesystem import FilesystemToolService
 from .tools.gmail import email_create_draft
 from .tools.notify import notify_user
-from .tools.screen import screen_capture
+from .tools.screen import screen_capture, screenshot_open
 from .tools.shell import shell_run
 
 
@@ -85,6 +85,10 @@ def build_tool_registry(settings: ToolServerSettings) -> ToolRegistry:
     registry.register(
         "screen_capture",
         lambda arguments: screen_capture(arguments, desktop_backend),
+    )
+    registry.register(
+        "screenshot_open",
+        lambda arguments: screenshot_open(arguments, desktop_backend),
     )
     registry.register(
         "accessibility_describe_screen",

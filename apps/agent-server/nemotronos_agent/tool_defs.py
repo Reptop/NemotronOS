@@ -42,6 +42,14 @@ def tool_definitions() -> list[dict[str, Any]]:
             "parameters": {"type": "object", "properties": {}},
         },
         {
+            "name": "screenshot_open",
+            "description": (
+                "Open the most recent screenshot captured by NemotronOS in the Windows "
+                "default image viewer. This does not capture a new screenshot."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+        {
             "name": "accessibility_describe_screen",
             "description": (
                 "Return structured accessibility context for the current desktop: "
@@ -131,7 +139,11 @@ def tool_definitions() -> list[dict[str, Any]]:
         },
         {
             "name": "app_launch",
-            "description": "Launch an application.",
+            "description": (
+                "Launch an application only when the user explicitly asks to open, "
+                "launch, or start it. Do not launch Calculator merely to answer a "
+                "math question that the model can answer through notify_user."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {

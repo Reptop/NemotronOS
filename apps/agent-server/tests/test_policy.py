@@ -16,6 +16,7 @@ class PolicyEngineTests(unittest.TestCase):
             "browser_snapshot",
             "canvas_list_assignments_due_soon",
             "accessibility_describe_screen",
+            "screenshot_open",
             "gmail_open",
             "gmail_search",
         ):

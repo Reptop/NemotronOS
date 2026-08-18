@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -25,20 +26,22 @@ class OpenWakeWordDetector:
 
         try:
             import sounddevice as sd
-            from openwakeword.model import Model
+            from pyopen_wakeword import Model, OpenWakeWord, OpenWakeWordFeatures
         except ImportError as exc:
             raise RuntimeError(
                 "openWakeWord wake mode requires extra local dependencies. "
-                "Install them with: python -m pip install openwakeword onnxruntime"
+                "Install them with: python -m pip install -e "
+                "'apps/voice-agent[openwakeword]'"
             ) from exc
-
-        model_kwargs: dict[str, Any] = {"inference_framework": "onnx"}
-        if settings.openwakeword_model_paths:
-            model_kwargs["wakeword_models"] = list(settings.openwakeword_model_paths)
 
         self.settings = settings
         self._sd = sd
-        self._model = Model(**model_kwargs)
+        self._features = OpenWakeWordFeatures.from_builtin()
+        self._models = _load_models(
+            settings.openwakeword_model_paths,
+            Model,
+            OpenWakeWord,
+        )
         self._block_frames = max(1, int(settings.sample_rate * settings.openwakeword_frame_ms / 1000))
 
     def wait_for_wake(self) -> WakeDetection:
@@ -53,10 +56,16 @@ class OpenWakeWordDetector:
                 del overflowed
 
                 mono_audio = np.asarray(block, dtype=np.int16).reshape(-1)
-                prediction = self._model.predict(mono_audio)
-                scores = _normalize_scores(prediction)
+                scores = _score_audio(
+                    self._features,
+                    self._models,
+                    mono_audio.tobytes(),
+                )
+                if not scores:
+                    continue
                 model_name, score = max(scores.items(), key=lambda item: item[1])
                 if score >= self.settings.openwakeword_threshold:
+                    self._reset()
                     return WakeDetection(
                         model_name=model_name,
                         score=score,
@@ -64,13 +73,43 @@ class OpenWakeWordDetector:
                     )
 
 
-def _normalize_scores(prediction: dict[str, Any]) -> dict[str, float]:
-    scores: dict[str, float] = {}
-    for key, value in prediction.items():
-        try:
-            scores[str(key)] = float(value)
-        except (TypeError, ValueError):
+    def _reset(self) -> None:
+        self._features.reset()
+        for model in self._models:
+            model.reset()
+
+
+def _load_models(
+    model_specs: tuple[str, ...],
+    model_enum: Any,
+    openwakeword_class: Any,
+) -> list[Any]:
+    specs = model_specs or ("hey_jarvis",)
+    models: list[Any] = []
+    available_models = ", ".join(item.value for item in model_enum)
+    for raw_spec in specs:
+        spec = raw_spec.strip()
+        model_path = Path(spec).expanduser()
+        if model_path.is_file():
+            models.append(openwakeword_class.from_model(model_path))
             continue
-    if not scores:
-        scores["unknown"] = 0.0
+        try:
+            built_in_model = model_enum(spec.lower())
+        except ValueError as exc:
+            raise RuntimeError(
+                f"Unknown local wake model '{spec}'. Use one of: {available_models}; "
+                "or provide a path to a custom .tflite model."
+            ) from exc
+        models.append(openwakeword_class.from_builtin(built_in_model))
+    return models
+
+
+def _score_audio(features: Any, models: list[Any], audio_bytes: bytes) -> dict[str, float]:
+    scores: dict[str, float] = {}
+    for embeddings in features.process_streaming(audio_bytes):
+        for model in models:
+            for value in model.process_streaming(embeddings):
+                score = float(value)
+                model_name = str(model.id)
+                scores[model_name] = max(scores.get(model_name, 0.0), score)
     return scores

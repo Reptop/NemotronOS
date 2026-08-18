@@ -349,6 +349,22 @@ class OpenAICompatibleModelClientTests(unittest.TestCase):
             {"include_screenshot": True, "max_windows": 12},
         )
 
+    def test_open_recent_screenshot_overrides_new_capture_tool_call(self) -> None:
+        client = RecordingModelClient(
+            self.settings,
+            PlannedToolCall(name="screen_capture", arguments={}),
+        )
+
+        planned_call = asyncio.run(
+            client.plan_first_action(
+                "Can you open that screenshot that you just took?",
+                [],
+            )
+        )
+
+        self.assertEqual(planned_call.name, "screenshot_open")
+        self.assertEqual(planned_call.arguments, {})
+
     def test_canvas_assignment_request_overrides_premature_sticky_tool(self) -> None:
         client = RecordingModelClient(
             self.settings,
@@ -794,6 +810,9 @@ class OpenAICompatibleModelClientTests(unittest.TestCase):
         self.assertIn("canvas_list_assignments_due_soon", system_prompt)
         self.assertIn("accessibility_describe_screen", system_prompt)
         self.assertIn("gmail_compose_draft", system_prompt)
+        self.assertIn("simple arithmetic", system_prompt)
+        self.assertIn("Do not launch an app, browser, or Calculator", system_prompt)
+        self.assertIn("explicitly asks to open, launch, or start", system_prompt)
         self.assertIn("AI assistant for both work and everyday life", system_prompt)
         self.assertIn("Do not add a wellness check to routine requests", system_prompt)
         self.assertIn("Never claim to have feelings", system_prompt)

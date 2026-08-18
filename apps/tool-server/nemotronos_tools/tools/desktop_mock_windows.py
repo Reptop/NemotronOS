@@ -20,6 +20,15 @@ class MockWindowsDesktopBackend(DesktopBackend):
             "image_ref": "mock://screen/latest",
         }
 
+    def open_last_screenshot(self) -> dict[str, Any]:
+        return {
+            "mode": "mock_windows",
+            "opened": True,
+            "path": "mock://screen/latest",
+            "viewer": "default",
+            "opened_at": datetime.now(timezone.utc).isoformat(),
+        }
+
     def describe_screen(self, include_screenshot: bool, max_windows: int) -> dict[str, Any]:
         captured_at = datetime.now(timezone.utc).isoformat()
         visible_windows = [
